@@ -1,0 +1,14 @@
+# Defense-in-depth ignore rules (Primary boundary is package.json "files")
+session/
+data/
+tests/
+scratch/
+.github/
+.git/
+.gemini/
+.system_generated/
+*.log
+*.tmp
+*.tgz
+.DS_Store
+Thumbs.db

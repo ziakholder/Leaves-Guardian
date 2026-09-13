@@ -1,0 +1,42 @@
+{
+  "name": "leaves-guardian",
+  "version": "0.2.0",
+  "description": "Enterprise Baileys Wrapper & Infrastructure Library for WhatsApp Bots",
+  "homepage": "https://leavesguardian.enginelabs.my.id/",
+  "main": "main/index.js",
+  "exports": {
+    ".": "./main/index.js",
+    "./package.json": "./package.json"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/terminal-presentation.test.js tests/ingress-deduplicator.test.js tests/ingress-rate-limiter.test.js tests/media-pipeline.test.js tests/traffic-controller.test.js tests/memory-guard.test.js tests/watchdog.test.js tests/health-monitor.test.js tests/session-recovery.test.js tests/smartstore.test.js tests/autodelete.test.js tests/ephemeral.test.js tests/paginator.test.js tests/prompt.test.js tests/collector.test.js tests/client.test.js tests/reconnect.test.js tests/normalizer.test.js tests/new-builders.test.js tests/terminal.test.js tests/hardening-disconnect.test.js tests/hardening-lifecycle.test.js tests/hardening-normalizer.test.js"
+  },
+  "files": [
+    "main/",
+    "README.md",
+    "HANDLER_GUIDE.md",
+    "LICENSE"
+  ],
+
+  "license": "MIT",
+  "author": "Rafa Dito / Royal Engine Studio",
+  "keywords": [
+    "whatsapp-bot",
+    "baileys",
+    "wrapper",
+    "library",
+    "royal-bot"
+  ],
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@napi-rs/canvas": "^1.0.8",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "chalk": "^5.6.2",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
