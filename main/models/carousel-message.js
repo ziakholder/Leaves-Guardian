@@ -157,35 +157,35 @@ class CarouselMessage extends BaseBuilder {
     );
 
     return {
-      interactiveMessage: {
-        header: { hasMediaAttachment: false },
-        body: { text: body },
-        footer: footer ? { text: footer } : undefined,
-        carouselMessage: {
-          cards,
-          messageVersion: 1,
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          interactiveMessage: {
+            header: { hasMediaAttachment: false },
+            body: { text: body },
+            footer: footer ? { text: footer } : undefined,
+            carouselMessage: {
+              cards,
+              messageVersion: 1,
+            },
+            contextInfo: this._contextInfo,
+          },
         },
-        contextInfo: this._contextInfo,
       },
     };
   }
 
   async send(jid, options = {}) {
+    const { default: resolveLidToPn } = await import('../helpers/lid-resolver.js');
+    const targetJid = resolveLidToPn(jid);
     const content = await this.build();
 
     const msg = generateWAMessageFromContent(
-      jid,
-      {
-        viewOnceMessage: {
-          message: {
-            messageContextInfo: {
-              deviceListMetadata: {},
-              deviceListMetadataVersion: 2,
-            },
-            interactiveMessage: content.interactiveMessage,
-          },
-        },
-      },
+      targetJid,
+      content,
       { userJid: this.#client.user?.id, ...options }
     );
 

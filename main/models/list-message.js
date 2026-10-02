@@ -1,6 +1,7 @@
-import { generateWAMessageFromContent } from '@whiskeysockets/baileys';
+import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError, DuplicateIdError, ItemNotFoundError } from '../errors.js';
+import { resolveLidToPn } from '../helpers/lid-resolver.js';
 
 /**
  * ListMessage — wrapper di atas InteractiveMessage (Native Flow: single_select) di Baileys.
@@ -11,6 +12,7 @@ import { ContentValidationError, DuplicateIdError, ItemNotFoundError } from '../
  *
  *   const list = new ListMessage(sock)
  *     .setTitle('Menu {{namaToko}}')
+ *     .setImage('https://example.com/banner.jpg')
  *     .setBody('Halo {{nama}}, silakan pilih menu favoritmu 🍃')
  *     .setButtonText('Lihat Menu')
  *     .setVars({ namaToko: 'Royal Store', nama: 'Rafa' })
@@ -30,10 +32,35 @@ class ListMessage extends BaseBuilder {
     this.#client = BaseBuilder.resolveSocket(client);
     this._buttonText = 'Pilih';
     this._sections = [];
+    this._media = null;
+    this._mediaType = null;
+    this._mediaOptions = {};
   }
 
   setButtonText(text) {
     this._buttonText = text;
+    return this;
+  }
+
+  /** Tambah gambar header banner */
+  setImage(pathOrBuffer) {
+    this._media = pathOrBuffer;
+    this._mediaType = 'image';
+    return this;
+  }
+
+  /** Tambah video header */
+  setVideo(pathOrBuffer) {
+    this._media = pathOrBuffer;
+    this._mediaType = 'video';
+    return this;
+  }
+
+  /** Tambah dokumen header */
+  setDocument(pathOrBuffer, { fileName = 'document', mimetype = 'application/octet-stream' } = {}) {
+    this._media = pathOrBuffer;
+    this._mediaType = 'document';
+    this._mediaOptions = { fileName, mimetype };
     return this;
   }
 
@@ -78,7 +105,7 @@ class ListMessage extends BaseBuilder {
   }
 
   /** Rakit jadi payload Baileys modern (Interactive single_select) */
-  build() {
+  async build() {
     const { title, body, footer } = this._renderAll();
 
     const sections = this._sections.map((s) => ({
@@ -96,20 +123,50 @@ class ListMessage extends BaseBuilder {
       sections,
     });
 
+    let header = { hasMediaAttachment: false };
+    if (this._media) {
+      const mediaKey = this._mediaType;
+      const mediaPayload = {
+        [mediaKey]: Buffer.isBuffer(this._media) ? this._media : { url: this._media },
+        ...this._mediaOptions,
+      };
+
+      const prepared = await prepareWAMessageMedia(mediaPayload, {
+        upload: this.#client.waUploadToServer,
+      });
+
+      const messageKey = `${this._mediaType}Message`;
+      header = {
+        title: title || undefined,
+        hasMediaAttachment: true,
+        [messageKey]: prepared[messageKey],
+      };
+    } else if (title) {
+      header = { title, hasMediaAttachment: false };
+    }
+
     return {
-      interactiveMessage: {
-        header: title ? { title, hasMediaAttachment: false } : undefined,
-        body: { text: body },
-        footer: footer ? { text: footer } : undefined,
-        nativeFlowMessage: {
-          buttons: [
-            {
-              name: 'single_select',
-              buttonParamsJson,
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          interactiveMessage: {
+            header: Object.keys(header).length > 0 ? header : undefined,
+            body: { text: body },
+            footer: footer ? { text: footer } : undefined,
+            nativeFlowMessage: {
+              buttons: [
+                {
+                  name: 'single_select',
+                  buttonParamsJson,
+                },
+              ],
             },
-          ],
+            contextInfo: this._buildContextInfo(),
+          },
         },
-        contextInfo: this._buildContextInfo(),
       },
     };
   }
@@ -118,13 +175,22 @@ class ListMessage extends BaseBuilder {
     if (this._sections.length === 0) {
       throw new ContentValidationError('Minimal 1 section sebelum send()');
     }
-    const content = this.build();
+    const targetJid = resolveLidToPn(jid);
+    const content = await this.build();
     const sendOpts = { userJid: this.#client.user?.id, ...options };
     if (this._quotedMessage) {
-      sendOpts.quoted = this._quotedMessage;
+      const cleanQuoted = { ...this._quotedMessage };
+      if (cleanQuoted.key) {
+        cleanQuoted.key = {
+          ...cleanQuoted.key,
+          remoteJid: targetJid,
+        };
+      }
+      sendOpts.quoted = cleanQuoted;
     }
 
-    const msg = generateWAMessageFromContent(jid, content, sendOpts);
+    const payload = content.viewOnceMessage ? content : content;
+    const msg = generateWAMessageFromContent(targetJid, payload, sendOpts);
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
       messageId: msg.key.id,

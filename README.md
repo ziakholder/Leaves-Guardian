@@ -108,13 +108,13 @@ Menghilangkan log JSON mentah dari Pino bawaan Baileys dan menggantinya dengan U
 
 ## 🎨 Interactive Message Builders (Layer 1)
 
-Leaves Guardian tetap 100% kompatibel dengan semua Message Builders interaktif:
+Leaves Guardian tetap 100% kompatibel dengan semua Message Builders interaktif modern berarsitektur direct native flow (`additionalNodes: mixed`):
 
 | Builder | Fungsi |
 |---|---|
 | `TextMessage` | Teks dengan template variabel, reply, mention, dan adReply |
-| `ButtonMessage` | Tombol interaktif (Quick Reply, Copy Code, Open URL, LTO Banner) |
-| `ListMessage` | Menu pilihan single-select interaktif (Native Flow) |
+| `ButtonMessage` | Tombol interaktif (Quick Reply, Copy Code, Open URL, Galaxy Flow, LTO Banner) |
+| `ListMessage` | Menu pilihan single-select interaktif (Native Flow) dengan dukungan Media Header (`setImage`) |
 | `CarouselMessage` | Multi-kartu horizontal yang bisa digeser (Cards Carousel) |
 | `AIRichMessage` | Tampilan kartu Meta AI dengan Suggestion Chips dan Citations |
 | `CanvasMessage` | Mini App / Game HTML5 interaktif di dalam chat WhatsApp |
@@ -125,7 +125,35 @@ Leaves Guardian tetap 100% kompatibel dengan semua Message Builders interaktif:
 | `EventMessage` | Undangan acara resmi WhatsApp (Group Event) dengan waktu, lokasi, & call link |
 | `StickerMessage` | Stiker WebP dengan custom metadata EXIF Pack Name & Author otomatis |
 
-### Contoh Penggunaan Builder dengan LeavesClient:
+### Contoh Penggunaan ListMessage dengan Header Gambar:
+
+```javascript
+import { LeavesClient, ListMessage } from 'leaves-guardian';
+
+const client = new LeavesClient();
+
+client.on('ready', async () => {
+  const sock = client.getRawSocket();
+
+  await new ListMessage(sock)
+    .setImage('https://example.com/banner.jpg')
+    .setTitle('🍃 Menu Utama Bot')
+    .setBody('Halo! Silakan pilih kategori perintah yang ingin kamu gunakan:')
+    .setButtonText('📋 Buka Menu')
+    .setFooter('Leaves Guardian Framework v0.3.0')
+    .addSection('Fitur Utama', [
+      { id: '.ai Halo', title: '🤖 Tanya AI', description: 'Tanya asisten AI cerdas' },
+      { id: '.menu', title: '📋 Semua Menu', description: 'Daftar semua modul bot' }
+    ])
+    .addSection('Informasi', [
+      { id: '.ping', title: '⚡ Cek Status', description: 'Cek kecepatan respon bot' },
+      { id: '.profile', title: '👤 Profil Saya', description: 'Lihat status akun & limit' }
+    ])
+    .send('628123456789@s.whatsapp.net');
+});
+```
+
+### Contoh Penggunaan ButtonMessage dengan Copy & Galaxy Flow:
 
 ```javascript
 import { LeavesClient, ButtonMessage } from 'leaves-guardian';
@@ -138,9 +166,10 @@ client.on('ready', async () => {
   await new ButtonMessage(sock)
     .setImage('https://picsum.photos/400/250')
     .setBody('Halo! Pilih aksi di bawah:')
+    .addGalaxy('╭━─ ⌜ PILIH MENU 」─━╮')
     .addReply('Buka Menu', '.menu')
-    .addCopy('Salin Kode', 'KODE123')
-    .addUrl('Website', 'https://whatsapp.com')
+    .addCopy('Salin Rekening DANA', '081234567890')
+    .addUrl('Website Resmi', 'https://leavesguardian.enginelabs.my.id/')
     .send('628123456789@s.whatsapp.net');
 });
 ```

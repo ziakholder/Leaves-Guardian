@@ -24,6 +24,7 @@ import { IngressRateLimiter } from '../limiter/IngressRateLimiter.js';
 import { IngressDeduplicator } from '../dedup/IngressDeduplicator.js';
 import { TerminalManager } from '../terminal/TerminalManager.js';
 import { PresentationAdapter } from '../terminal/PresentationAdapter.js';
+import { resolveLidToPn } from '../helpers/lid-resolver.js';
 
 
 export const CLIENT_STATES = Object.freeze({
@@ -239,6 +240,7 @@ export class LeavesClient extends EventEmitter {
     });
 
     this.connectionManager.on('pairing_code', (data) => {
+      console.log(`\n🔑 WHATSAPP PAIRING CODE: ${data.code}\n`);
       this.terminal.success('PAIRING', `Pairing code generated for ${this.terminal.mask(data.phoneNumber)}: ${data.code}`);
       this.emit('pairing_code', data);
     });
@@ -447,26 +449,28 @@ export class LeavesClient extends EventEmitter {
     if (!this.isReady()) {
       throw new ConnectionError(`Cannot send message while client is not READY (current: ${this.state})`);
     }
+    const targetJid = resolveLidToPn(jid);
     let res;
     // If a builder instance is passed directly
     if (contentOrBuilder && typeof contentOrBuilder.send === 'function') {
-      res = await contentOrBuilder.send(jid, options);
+      res = await contentOrBuilder.send(targetJid, options);
     } else {
       const sock = this.getRawSocket();
       if (!sock) {
         throw new ConnectionError('Socket not available for sending message');
       }
-      res = await sock.sendMessage(jid, contentOrBuilder, options);
+      res = await sock.sendMessage(targetJid, contentOrBuilder, options);
     }
     this.throughput.messagesSentTotal++;
     return res;
   }
 
   async sendMessage(jid, contentOrBuilder, options = {}) {
+    const targetJid = resolveLidToPn(jid);
     if (options?.traffic?.enabled === false || this.options?.traffic?.enabled === false) {
-      return this._rawSend(jid, contentOrBuilder, options);
+      return this._rawSend(targetJid, contentOrBuilder, options);
     }
-    return this.trafficController.enqueue(jid, contentOrBuilder, options);
+    return this.trafficController.enqueue(targetJid, contentOrBuilder, options);
   }
 
 
@@ -484,7 +488,8 @@ export class LeavesClient extends EventEmitter {
       throw new ConnectionError(`Cannot delete message while client is not READY (current: ${this.state})`);
     }
     const sock = this.getRawSocket();
-    return sock.sendMessage(key.remoteJid, { delete: key });
+    const targetJid = resolveLidToPn(key?.remoteJid);
+    return sock.sendMessage(targetJid, { delete: key });
   }
 
   async sendAndAutoDelete(jid, contentOrBuilder, delayMs, options = {}) {

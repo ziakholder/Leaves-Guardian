@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, Browsers, makeCacheableSignalKeyStore } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import { ConnectionError, AuthenticationError } from '../errors/LeavesError.js';
 import { RECONNECT_REASONS, NON_RECOVERABLE_REASONS } from './ReconnectManager.js';
@@ -13,7 +13,7 @@ export class ConnectionManager extends EventEmitter {
     this.loggerAdapter = options.loggerAdapter;
     this.eventManager = options.eventManager;
     this.socketFactory = options.socketFactory || makeWASocket;
-    this.browser = options.browser || ['Leaves Guardian', 'Chrome', '1.0.0'];
+    this.browser = options.browser || Browsers.ubuntu('Chrome');
     this.markOnlineOnConnect = options.markOnlineOnConnect !== false;
     
     this.sock = null;
@@ -26,8 +26,8 @@ export class ConnectionManager extends EventEmitter {
     if (this._isShuttingDown) return null;
 
     const auth = await this.sessionManager.initAuth();
-    let version = this._cachedVersion || [2, 3000, 1015901307];
-    if (!this._cachedVersion) {
+    let version = this._cachedVersion;
+    if (!version) {
       try {
         const v = await fetchLatestBaileysVersion();
         if (v && v.version) {
@@ -36,17 +36,27 @@ export class ConnectionManager extends EventEmitter {
         }
       } catch (_) {}
     }
+    if (!version) {
+      version = [2, 3000, 1043857760];
+    }
 
     const logger = this.loggerAdapter ? this.loggerAdapter.createPinoLogger() : undefined;
 
     this.sock = this.socketFactory({
       version,
-      auth: auth.state,
+      auth: {
+        creds: auth.state.creds,
+        keys: makeCacheableSignalKeyStore(auth.state.keys, logger)
+      },
       printQRInTerminal: false,
       logger,
       browser: this.browser,
       markOnlineOnConnect: this.markOnlineOnConnect,
-      generateHighQualityLinkPreview: true
+      generateHighQualityLinkPreview: true,
+      syncFullHistory: false,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 25000,
+      retryRequestDelayMs: 2000
     });
 
     this.eventManager.bindSocketEvents(this.sock, {
@@ -86,10 +96,12 @@ export class ConnectionManager extends EventEmitter {
 
     try {
       this._pairingRequested = true;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       const code = await this.sock.requestPairingCode(cleanNumber);
       this.emit('pairing_code', { code, phoneNumber: cleanNumber });
       return code;
     } catch (err) {
+      this._pairingRequested = false;
       throw new ConnectionError(`Failed to request pairing code: ${err.message}`, { cause: err });
     }
   }
@@ -97,18 +109,19 @@ export class ConnectionManager extends EventEmitter {
   _handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;
 
-    // Deterministic Pairing Code trigger: when QR or connecting event occurs and method is pairing
+    // Deterministic Pairing Code trigger: ONLY when QR is generated (signaling socket is ready for auth)
     if (
-      (qr || connection === 'connecting') &&
+      qr &&
       !this.sessionManager.isRegistered() &&
       this.sessionManager.authMethod === 'pairing' &&
       this.sessionManager.phoneNumber &&
       !this._pairingRequested
     ) {
+      this._pairingRequested = true;
       this.emit('pairing_eligible', { phoneNumber: this.sessionManager.phoneNumber });
     }
 
-    if (qr) {
+    if (qr && this.sessionManager.authMethod !== 'pairing') {
       this.emit('qr', qr);
     }
 
@@ -121,7 +134,6 @@ export class ConnectionManager extends EventEmitter {
       this.emit('connection_open', this.sock);
     } else if (connection === 'close') {
       this.isConnected = false;
-      this._pairingRequested = false;
       this._handleDisconnection(lastDisconnect);
     }
   }
@@ -137,10 +149,13 @@ export class ConnectionManager extends EventEmitter {
     let reason = RECONNECT_REASONS.UNKNOWN_TRANSIENT;
     let isNonRecoverable = false;
 
-    if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+    if ((statusCode === DisconnectReason.loggedOut || statusCode === 401) && this.sessionManager.isRegistered()) {
       reason = NON_RECOVERABLE_REASONS.LOGGED_OUT;
       isNonRecoverable = true;
       this.emit('logged_out', new AuthenticationError('Account logged out of WhatsApp', { statusCode }));
+    } else if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+      reason = RECONNECT_REASONS.UNKNOWN_TRANSIENT;
+      this._pairingRequested = false;
     } else if (statusCode === DisconnectReason.connectionClosed || statusCode === 428) {
       reason = RECONNECT_REASONS.CONNECTION_CLOSED;
     } else if (statusCode === DisconnectReason.connectionLost || statusCode === 408) {

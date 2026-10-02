@@ -12,6 +12,8 @@
  * @param {boolean} [opts.showAdAttribution=false] - Menampilkan label iklan/sponsored
  * @param {number} [opts.mediaType=1] - 1: Gambar, 2: Video
  */
+import fs from 'fs';
+
 function withAdReply({
   title,
   body = '',
@@ -27,12 +29,24 @@ function withAdReply({
     throw new Error('title wajib diisi untuk adReply');
   }
 
+  let thumbBuf = Buffer.isBuffer(thumbnail) ? thumbnail : undefined;
+  let thumbUrl = thumbnailUrl || (typeof thumbnail === 'string' && /^https?:\/\//i.test(thumbnail) ? thumbnail : undefined);
+
+  if (!thumbBuf && typeof thumbnail === 'string' && !/^https?:\/\//i.test(thumbnail)) {
+    try {
+      if (fs.existsSync(thumbnail)) {
+        thumbBuf = fs.readFileSync(thumbnail);
+      }
+    } catch (_) {}
+  }
+
   const externalAdReply = {
     title,
     body,
     mediaType,
-    thumbnailUrl: thumbnailUrl || (typeof thumbnail === 'string' && /^https?:\/\//i.test(thumbnail) ? thumbnail : undefined),
-    thumbnail: Buffer.isBuffer(thumbnail) ? thumbnail : undefined,
+    thumbnailUrl: thumbUrl,
+    thumbnail: thumbBuf,
+    jpegThumbnail: thumbBuf,
     sourceUrl: sourceUrl || mediaUrl || 'https://whatsapp.com',
     mediaUrl: mediaUrl || sourceUrl || 'https://whatsapp.com',
     renderLargerThumbnail: Boolean(renderLargerThumbnail),

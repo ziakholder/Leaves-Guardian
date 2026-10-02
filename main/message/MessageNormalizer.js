@@ -1,6 +1,7 @@
-﻿import { Message } from './Message.js';
+import { Message } from './Message.js';
 import { MessageTypes } from './MessageTypes.js';
 import { MessageNormalizationError } from '../errors/LeavesError.js';
+import { resolveLidToPn } from '../helpers/lid-resolver.js';
 
 export class MessageNormalizer {
   /**
@@ -19,10 +20,27 @@ export class MessageNormalizer {
       }
 
       const id = key.id || '';
-      const remoteJid = key.remoteJid || '';
+      let remoteJid = key.remoteJid || '';
+      const remoteJidAlt = key.remoteJidAlt || rawBaileysMsg.remoteJidAlt || '';
       const isGroup = remoteJid.endsWith('@g.us');
       const isMe = Boolean(key.fromMe);
-      const senderJid = isGroup ? (key.participant || rawBaileysMsg.participant || '') : remoteJid;
+      let senderJid = isGroup ? (key.participant || rawBaileysMsg.participant || '') : remoteJid;
+
+      if (!isGroup && remoteJid.includes('@lid')) {
+        if (remoteJidAlt && typeof remoteJidAlt === 'string' && remoteJidAlt.endsWith('@s.whatsapp.net')) {
+          remoteJid = remoteJidAlt;
+        } else {
+          remoteJid = resolveLidToPn(remoteJid);
+        }
+        senderJid = remoteJid;
+      } else if (isGroup && senderJid.includes('@lid')) {
+        const participantAlt = key.participantAlt || rawBaileysMsg.participantAlt;
+        if (participantAlt && typeof participantAlt === 'string' && participantAlt.endsWith('@s.whatsapp.net')) {
+          senderJid = participantAlt;
+        } else {
+          senderJid = resolveLidToPn(senderJid);
+        }
+      }
 
       // 2. Unwrap
       const rawContent = rawBaileysMsg.message;
@@ -192,13 +210,27 @@ export class MessageNormalizer {
       contextInfo = poll.contextInfo;
     } else if (content.buttonsResponseMessage || content.templateButtonReplyMessage || content.interactiveResponseMessage) {
       type = MessageTypes.BUTTON;
-      text = content.buttonsResponseMessage?.selectedDisplayText ||
+      let interactiveText = '';
+      if (content.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
+        try {
+          const parsed = JSON.parse(content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
+          interactiveText = parsed.id || parsed.selected_id || parsed.copy_code || content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson;
+        } catch {
+          interactiveText = content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson;
+        }
+      }
+      text = content.buttonsResponseMessage?.selectedButtonId ||
+             content.buttonsResponseMessage?.selectedDisplayText ||
+             content.templateButtonReplyMessage?.selectedId ||
              content.templateButtonReplyMessage?.selectedDisplayText ||
-             content.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson || '';
-      contextInfo = content.buttonsResponseMessage?.contextInfo || content.interactiveResponseMessage?.contextInfo;
+             interactiveText || '';
+      contextInfo = content.buttonsResponseMessage?.contextInfo ||
+                    content.templateButtonReplyMessage?.contextInfo ||
+                    content.interactiveResponseMessage?.contextInfo;
     } else if (content.listResponseMessage) {
       type = MessageTypes.LIST;
-      text = content.listResponseMessage.title || '';
+      text = content.listResponseMessage.singleSelectReply?.selectedRowId ||
+             content.listResponseMessage.title || '';
       contextInfo = content.listResponseMessage.contextInfo;
     }
 

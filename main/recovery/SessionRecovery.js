@@ -191,7 +191,7 @@ export class SessionRecovery extends EventEmitter {
     return {
       status: SESSION_STATUS.HEALTHY,
       isCorrupted: false,
-      registered: Boolean(parsed.registered || parsed.me),
+      registered: Boolean(parsed.registered),
       accountJid: parsed.me?.id || null
     };
   }

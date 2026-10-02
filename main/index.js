@@ -85,3 +85,5 @@ export { default as withChannelForward } from './helpers/channel-forward.js';
 export { default as withAdReply } from './helpers/ad-reply.js';
 export { default as generateStatCard } from './helpers/stat-card.js';
 export { default as resolveMedia } from './helpers/media-resolver.js';
+export { default as resolveLidToPn } from './helpers/lid-resolver.js';
+

@@ -89,12 +89,14 @@ export class EventMessage extends BaseBuilder {
     if (!this.#client) {
       throw new Error('Client / Socket belum di-pass ke EventMessage constructor');
     }
+    const { default: resolveLidToPn } = await import('../helpers/lid-resolver.js');
+    const targetJid = resolveLidToPn(jid);
     const message = this.build();
     const sendOpts = { ...options };
     if (this._quotedMessage) {
       sendOpts.quoted = this._quotedMessage;
     }
-    return await this.#client.sendMessage(jid, message, sendOpts);
+    return await this.#client.sendMessage(targetJid, message, sendOpts);
   }
 }
 

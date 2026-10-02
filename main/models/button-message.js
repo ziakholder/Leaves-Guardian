@@ -1,6 +1,7 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
+import { resolveLidToPn } from '../helpers/lid-resolver.js';
 
 /**
  * ButtonMessage — wrapper custom di atas InteractiveMessage.NativeFlowMessage (Baileys).
@@ -28,9 +29,12 @@ class ButtonMessage extends BaseBuilder {
     this._media = null;
     this._mediaType = null;
     this._mediaOptions = {};
+    this._currentSelectionIndex = -1;
+    this._currentSectionIndex = -1;
+    this._params = {};
   }
 
-  addReply(displayText, id) {
+  addReply(displayText, id = '') {
     this._buttons.push({
       name: 'quick_reply',
       buttonParamsJson: JSON.stringify({ display_text: this._render(displayText), id }),
@@ -38,10 +42,14 @@ class ButtonMessage extends BaseBuilder {
     return this;
   }
 
-  addUrl(displayText, url) {
+  addUrl(displayText, url = '', webviewInteraction = false) {
     this._buttons.push({
       name: 'cta_url',
-      buttonParamsJson: JSON.stringify({ display_text: this._render(displayText), url }),
+      buttonParamsJson: JSON.stringify({
+        display_text: this._render(displayText),
+        url: this._render(url),
+        webview_interaction: webviewInteraction,
+      }),
     });
     return this;
   }
@@ -58,18 +66,72 @@ class ButtonMessage extends BaseBuilder {
     return this;
   }
 
+  addButton(name, params) {
+    this._buttons.push({
+      name,
+      buttonParamsJson: typeof params === 'string' ? params : JSON.stringify(params),
+    });
+    return this;
+  }
+
+  addSelection(title, options = {}) {
+    this._buttons.push({
+      ...options,
+      name: 'single_select',
+      buttonParamsJson: JSON.stringify({
+        title: this._render(title),
+        sections: [],
+      }),
+    });
+    this._currentSelectionIndex = this._buttons.length - 1;
+    this._currentSectionIndex = -1;
+    return this;
+  }
+
+  makeSection(title = '', highlight_label = '') {
+    if (this._currentSelectionIndex === -1) {
+      throw new Error('You need to create a selection first via addSelection()');
+    }
+    const buttonParams = JSON.parse(this._buttons[this._currentSelectionIndex].buttonParamsJson);
+    buttonParams.sections.push({
+      title: this._render(title),
+      highlight_label: this._render(highlight_label),
+      rows: [],
+    });
+    this._currentSectionIndex = buttonParams.sections.length - 1;
+    this._buttons[this._currentSelectionIndex].buttonParamsJson = JSON.stringify(buttonParams);
+    return this;
+  }
+
+  makeRow(header = '', title = '', description = '', id = '') {
+    if (this._currentSelectionIndex === -1 || this._currentSectionIndex === -1) {
+      throw new Error('You need to create a selection and a section first');
+    }
+    const buttonParams = JSON.parse(this._buttons[this._currentSelectionIndex].buttonParamsJson);
+    buttonParams.sections[this._currentSectionIndex].rows.push({
+      header: this._render(header),
+      title: this._render(title),
+      description: this._render(description),
+      id: this._render(id),
+    });
+    this._buttons[this._currentSelectionIndex].buttonParamsJson = JSON.stringify(buttonParams);
+    return this;
+  }
+
+  setBottomSheet(title, { inThreadButtonsLimit = 1, dividerIndices = [1, 2] } = {}) {
+    this._params.bottom_sheet = {
+      in_thread_buttons_limit: inThreadButtonsLimit,
+      divider_indices: dividerIndices,
+      list_title: title,
+      button_title: title,
+    };
+    return this;
+  }
+
   /**
    * Banner promo dengan timer kedaluwarsa (Limited Time Offer / LTO)
-   * Menampilkan badge tag berikon "Saran Command" / "Nama Promo" di atas pesan.
-   *
-   * @param {string} displayText - Teks judul promo/banner
-   * @param {Object} [opts]
-   * @param {number} [opts.expiration_time] - Unix timestamp (detik)
-   * @param {number} [opts.days=7] - Jumlah hari sebelum tawaran berakhir (jika expiration_time tidak diisi)
-   * @param {string} [opts.url] - URL info promo
-   * @param {string} [opts.copy_code] - Kode promo yang otomatis bisa disalin
    */
-  addLimitedOffer(displayText, { expiration_time, days = 7, url = 'https://whatsapp.com', copy_code } = {}) {
+  addLimitedOffer(displayText, { expiration_time, days = 7, url = 'https://whatsapp.com', copy_code = '' } = {}) {
     const expireSec = expiration_time || Math.floor(Date.now() / 1000) + Math.round(days * 86400);
 
     this._buttons.push({
@@ -82,7 +144,7 @@ class ButtonMessage extends BaseBuilder {
       }),
     });
 
-    this._extraPayload_limitedOffer = {
+    this._params.limited_time_offer = {
       text: this._render(displayText),
       url,
       copy_code,
@@ -110,13 +172,7 @@ class ButtonMessage extends BaseBuilder {
     return this;
   }
 
-  /**
-   * Tambah dokumen / file header (menampilkan card file [JPG]/[PDF] seperti di screenshot)
-   * @param {string|Buffer} path - Path / URL / Buffer file
-   * @param {Object} [options]
-   * @param {string} [options.fileName='document'] - Nama file yang ditampilkan
-   * @param {string} [options.mimetype='application/octet-stream'] - Mimetype file
-   */
+  /** Tambah dokumen header */
   setDocument(path, { fileName = 'document', mimetype = 'application/octet-stream' } = {}) {
     this._media = path;
     this._mediaType = 'document';
@@ -124,8 +180,26 @@ class ButtonMessage extends BaseBuilder {
     return this;
   }
 
+  /** Tombol banner flow / galaxy message */
+  addGalaxy(flowCta, { flowAction = 'navigate', screen = 'SATISFACTION_SCREEN', data = {} } = {}) {
+    this._buttons.push({
+      name: 'galaxy_message',
+      buttonParamsJson: JSON.stringify({
+        flow_cta: this._render(flowCta),
+        icon: '',
+        flow_message_version: '3',
+        flow_action: flowAction,
+        flow_action_payload: {
+          screen,
+          data,
+        },
+      }),
+    });
+    return this;
+  }
+
   async build() {
-    const { body, footer } = this._renderAll();
+    const { title, body, footer } = this._renderAll();
 
     if (this._buttons.length === 0) {
       throw new ContentValidationError('Minimal 1 button sebelum build()/send()');
@@ -145,35 +219,53 @@ class ButtonMessage extends BaseBuilder {
 
       const messageKey = `${this._mediaType}Message`;
       header = {
+        title: title || undefined,
         hasMediaAttachment: true,
         [messageKey]: prepared[messageKey],
       };
+    } else if (title) {
+      header = { title, hasMediaAttachment: false };
     }
 
     return {
-      interactiveMessage: {
-        header,
-        body: { text: body },
-        footer: footer ? { text: footer } : undefined,
-        nativeFlowMessage: {
-          buttons: this._buttons,
-          messageParamsJson: this._extraPayload_limitedOffer
-            ? JSON.stringify({ limited_time_offer: this._extraPayload_limitedOffer })
-            : undefined,
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          interactiveMessage: {
+            header: Object.keys(header).length > 0 ? header : undefined,
+            body: { text: body },
+            footer: footer ? { text: footer } : undefined,
+            nativeFlowMessage: {
+              buttons: this._buttons,
+              messageParamsJson: Object.keys(this._params).length > 0 ? JSON.stringify(this._params) : undefined,
+            },
+            contextInfo: this._buildContextInfo(),
+          },
         },
-        contextInfo: this._buildContextInfo(),
       },
     };
   }
 
   async send(jid, options = {}) {
+    const targetJid = resolveLidToPn(jid);
     const content = await this.build();
     const sendOpts = { userJid: this.#client.user?.id, ...options };
     if (this._quotedMessage) {
-      sendOpts.quoted = this._quotedMessage;
+      const cleanQuoted = { ...this._quotedMessage };
+      if (cleanQuoted.key) {
+        cleanQuoted.key = {
+          ...cleanQuoted.key,
+          remoteJid: targetJid,
+        };
+      }
+      sendOpts.quoted = cleanQuoted;
     }
 
-    const msg = generateWAMessageFromContent(jid, content, sendOpts);
+    const payload = content.viewOnceMessage ? content : content;
+    const msg = generateWAMessageFromContent(targetJid, payload, sendOpts);
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
       messageId: msg.key.id,

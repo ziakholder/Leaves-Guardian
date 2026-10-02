@@ -1,6 +1,7 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
+import { resolveLidToPn } from '../helpers/lid-resolver.js';
 
 /**
  * ProductMessage — Builder kartu produk interaktif untuk WhatsApp.
@@ -162,25 +163,31 @@ class ProductMessage extends BaseBuilder {
     }
 
     return {
-      interactiveMessage: {
-        header: {
-          title: `🛍️ ${title}`,
-          hasMediaAttachment: true,
-          imageMessage: media.imageMessage,
+      viewOnceMessage: {
+        message: {
+          interactiveMessage: {
+            header: {
+              title: `🛍️ ${title}`,
+              hasMediaAttachment: true,
+              imageMessage: media.imageMessage,
+            },
+            body: { text: bodySections.join('\n\n') },
+            footer: footer ? { text: footer } : undefined,
+            nativeFlowMessage: {
+              buttons,
+            },
+            contextInfo: this._contextInfo,
+          },
         },
-        body: { text: bodySections.join('\n\n') },
-        footer: footer ? { text: footer } : undefined,
-        nativeFlowMessage: {
-          buttons,
-        },
-        contextInfo: this._contextInfo,
       },
     };
   }
 
   async send(jid, options = {}) {
+    const targetJid = resolveLidToPn(jid);
     const content = await this.build();
-    const msg = generateWAMessageFromContent(jid, content, { userJid: this.#client.user?.id, ...options });
+    const payload = content.viewOnceMessage ? content : content;
+    const msg = generateWAMessageFromContent(targetJid, payload, { userJid: this.#client.user?.id, ...options });
 
     if (this._useBusinessCatalog) {
       await this.#client.relayMessage(msg.key.remoteJid, msg.message, { messageId: msg.key.id });

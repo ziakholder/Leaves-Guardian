@@ -178,13 +178,15 @@ class RichMessage extends BaseBuilder {
     const text = this.formatMessage();
     return {
       text,
-      contextInfo: this._contextInfo,
+      contextInfo: this._buildContextInfo(),
     };
   }
 
   async send(jid, options = {}) {
+    const { default: resolveLidToPn } = await import('../helpers/lid-resolver.js');
+    const targetJid = resolveLidToPn(jid);
     const content = this.build();
-    return await this.#client.sendMessage(jid, content, options);
+    return await this.#client.sendMessage(targetJid, content, options);
   }
 }
 

@@ -24,13 +24,13 @@
  * @param {string} opts.channelName - Nama channel yang ditampilkan
  * @param {number} [opts.serverMessageId] - ID pesan di channel (opsional, biar bisa di-track)
  */
-function withChannelForward({ channelJid, channelName, serverMessageId = 1 }) {
+function withChannelForward({ channelJid, channelName, serverMessageId = 1, forwardingScore = 1 }) {
   if (!channelJid || !channelName) {
     throw new Error('channelJid dan channelName wajib diisi');
   }
 
   return {
-    forwardingScore: 9999, // angka tinggi = ditampilkan sebagai "Diteruskan"
+    forwardingScore,
     isForwarded: true,
     forwardedNewsletterMessageInfo: {
       newsletterJid: channelJid,

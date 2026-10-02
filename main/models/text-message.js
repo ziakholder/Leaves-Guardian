@@ -46,6 +46,8 @@ class TextMessage extends BaseBuilder {
     if (!this._body) {
       throw new Error('Body wajib diisi sebelum send() — pakai .setBody()');
     }
+    const { default: resolveLidToPn } = await import('../helpers/lid-resolver.js');
+    const targetJid = resolveLidToPn(jid);
     const message = this.build();
     const sendOptions = { ...options };
 
@@ -67,7 +69,7 @@ class TextMessage extends BaseBuilder {
       }
     }
 
-    return await this.#client.sendMessage(jid, message, sendOptions);
+    return await this.#client.sendMessage(targetJid, message, sendOptions);
   }
 }
 

@@ -2,8 +2,7 @@ import crypto from 'crypto';
 import { generateWAMessageFromContent } from '@whiskeysockets/baileys';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
-
-const VERSION = '4.7';
+import { resolveLidToPn } from '../helpers/lid-resolver.js';
 
 function stringifyEscaped(obj) {
   return JSON.stringify(obj).replace(/[\u007f-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
@@ -126,33 +125,78 @@ const KEYWORDS_MAP = {
 function tokenizeCode(code, lang = 'javascript') {
   const keywords = KEYWORDS_MAP[lang.toLowerCase()] || KEYWORDS_MAP.javascript;
   const tokens = [];
-  const lines = code.split('\n');
+  let i = 0;
 
-  for (const line of lines) {
-    const words = line.split(/(\s+|[^\w$])/g).filter(Boolean);
-    for (const w of words) {
-      if (keywords.has(w)) {
-        tokens.push({ codeContent: w, highlightType: 1 });
-      } else if (/^['"`].*['"`]$/.test(w)) {
-        tokens.push({ codeContent: w, highlightType: 3 });
-      } else {
-        tokens.push({ codeContent: w, highlightType: 0 });
-      }
+  const push = (content, type) => {
+    if (!content) return;
+    const last = tokens[tokens.length - 1];
+    if (last && last.highlightType === type) last.codeContent += content;
+    else tokens.push({ codeContent: content, highlightType: type });
+  };
+
+  while (i < code.length) {
+    const c = code[i];
+    if (/\s/.test(c)) {
+      let s = i;
+      while (i < code.length && /\s/.test(code[i])) i++;
+      push(code.slice(s, i), 0);
+      continue;
     }
-    tokens.push({ codeContent: '\n', highlightType: 0 });
+    if (c === '/' && code[i + 1] === '/') {
+      let s = i;
+      i += 2;
+      while (i < code.length && code[i] !== '\n') i++;
+      push(code.slice(s, i), 5);
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      let s = i;
+      const q = c;
+      i++;
+      while (i < code.length) {
+        if (code[i] === '\\' && i + 1 < code.length) i += 2;
+        else if (code[i] === q) {
+          i++;
+          break;
+        } else i++;
+      }
+      push(code.slice(s, i), 3);
+      continue;
+    }
+    if (/[0-9]/.test(c)) {
+      let s = i;
+      while (i < code.length && /[0-9.]/.test(code[i])) i++;
+      push(code.slice(s, i), 4);
+      continue;
+    }
+    if (/[a-zA-Z_$]/.test(c)) {
+      let s = i;
+      while (i < code.length && /[a-zA-Z0-9_$]/.test(code[i])) i++;
+      const word = code.slice(s, i);
+      let type = 0;
+      if (keywords.has(word)) type = 1;
+      else {
+        let j = i;
+        while (j < code.length && /\s/.test(code[j])) j++;
+        if (code[j] === '(') type = 2;
+      }
+      push(word, type);
+      continue;
+    }
+    push(c, 0);
+    i++;
   }
 
-  const typeNames = { 0: 'DEFAULT', 1: 'KEYWORD', 2: 'METHOD', 3: 'STR' };
+  const TYPE_MAP = { 0: 'DEFAULT', 1: 'KEYWORD', 2: 'METHOD', 3: 'STR', 4: 'NUMBER', 5: 'COMMENT' };
   return {
     codeBlocks: tokens,
-    unified_codeBlock: tokens.map((t) => ({ content: t.codeContent, type: typeNames[t.highlightType] || 'DEFAULT' })),
+    unified_codeBlock: tokens.map((t) => ({ content: t.codeContent, type: TYPE_MAP[t.highlightType] || 'DEFAULT' })),
   };
 }
 
 /**
- * AIRichMessage — WhatsApp Meta AI Rich Response Builder (Zaileys / NIXCODE Protocol).
- * Mendukung Inline Link Markdown, Suggestion Chips, LaTeX Formula, Syntax Highlighting,
- * dan fitur auto-bypass WhatsApp Android via protocol message edit.
+ * AIRichMessage — WhatsApp Meta AI Rich Response Builder (Zaileys / NIXCODE / Ryuu Protocol).
+ * Supports Markdown Text, Suggestion ActionRow Pills, Syntax Highlighting, Tables, Media, Products, and Posts.
  */
 class AIRichMessage extends BaseBuilder {
   #client;
@@ -163,12 +207,12 @@ class AIRichMessage extends BaseBuilder {
     this.#client = BaseBuilder.resolveSocket(client);
     this._sections = [];
     this._submessages = [];
+    this._richResponseSources = [];
     this._responseId = crypto.randomUUID();
     this._botResponseId = crypto.randomUUID();
-    this._lastMessageKey = null;
   }
 
-  static _newLayout(name, data) {
+  static newLayout(name, data) {
     return {
       view_model: {
         [Array.isArray(data) ? 'primitives' : 'primitive']: data,
@@ -177,34 +221,8 @@ class AIRichMessage extends BaseBuilder {
     };
   }
 
-  /**
-   * Dummy proofs signature & certificate chain untuk verifikasi Meta AI
-   */
-  static generateVerificationMetadata() {
-    const signatureMaterial = Buffer.from(
-      `\u004E\u0049\u0058\u0045\u004C\u002E\u004D\u0065\u0073\u0073\u0061\u0067\u0065\u0042\u0075\u0069\u006C\u0064\u0065\u0072\u0056${VERSION}\u002D\u0056\u0065\u0072\u0069\u0066\u0069\u0063\u0061\u0074\u0069\u006F\u006E\u0053\u0069\u0067\u006E\u0061\u0074\u0075\u0072\u0065\u002E\u004D\u0065\u0074\u0061\u0064\u0061\u0074\u0061`
-    );
-
-    const certificateMaterial = Buffer.from(
-      `\u004E\u0049\u0058\u0045\u004C\u002E\u004D\u0065\u0073\u0073\u0061\u0067\u0065\u0042\u0075\u0069\u006C\u0064\u0065\u0072\u0056${VERSION}\u002D\u0043\u0065\u0072\u0074\u0069\u0066\u0069\u0063\u0061\u0074\u0065\u0043\u0068\u0061\u0069\u006E\u002E\u004D\u0065\u0074\u0061\u0064\u0061\u0074\u0061`
-    );
-
-    const signature = Buffer.concat([signatureMaterial, crypto.randomBytes(Math.max(0, 64 - signatureMaterial.length))]).toString('base64');
-    const certChain = [
-      Buffer.concat([certificateMaterial, crypto.randomBytes(Math.max(0, 684 - certificateMaterial.length))]).toString('base64'),
-      Buffer.concat([certificateMaterial, crypto.randomBytes(Math.max(0, 892 - certificateMaterial.length))]).toString('base64'),
-    ];
-
-    return {
-      proofs: [
-        {
-          version: 1,
-          useCase: 1,
-          signature,
-          certificateChain: certChain,
-        },
-      ],
-    };
+  static _newLayout(name, data) {
+    return AIRichMessage.newLayout(name, data);
   }
 
   /**
@@ -212,16 +230,26 @@ class AIRichMessage extends BaseBuilder {
    */
   addText(text, { hyperlink = true, citation = true, latex = true } = {}) {
     const rendered = this._render(text);
-    const { text: parsedText, inline_entities } = extractIE(rendered, { hyperlink, citation, latex });
+    const extracted = extractIE(rendered, { hyperlink, citation, latex });
 
-    const section = AIRichMessage._newLayout('Single', {
-      text: parsedText,
-      ...(inline_entities.length > 0 ? { inline_entities } : {}),
-      __typename: 'GenAIMarkdownTextUXPrimitive',
+    const inline_entities = extracted.inline_entities.map((item) => {
+      if (item.metadata) return item;
+      return item;
     });
 
-    this._sections.push(section);
-    this._submessages.push({ messageType: 2, messageText: rendered });
+    this._submessages.push({
+      messageType: 2,
+      messageText: extracted.text,
+    });
+
+    this._sections.push(
+      AIRichMessage.newLayout('Single', {
+        text: extracted.text,
+        ...(inline_entities.length > 0 && { inline_entities }),
+        __typename: 'GenAIMarkdownTextUXPrimitive',
+      })
+    );
+
     return this;
   }
 
@@ -232,13 +260,6 @@ class AIRichMessage extends BaseBuilder {
     const rendered = this._render(code);
     const meta = tokenizeCode(rendered, language);
 
-    const section = AIRichMessage._newLayout('Single', {
-      language,
-      code_blocks: meta.unified_codeBlock,
-      __typename: 'GenAICodeUXPrimitive',
-    });
-
-    this._sections.push(section);
     this._submessages.push({
       messageType: 5,
       codeMetadata: {
@@ -246,6 +267,15 @@ class AIRichMessage extends BaseBuilder {
         codeBlocks: meta.codeBlocks,
       },
     });
+
+    this._sections.push(
+      AIRichMessage.newLayout('Single', {
+        language,
+        code_blocks: meta.unified_codeBlock,
+        __typename: 'GenAICodeUXPrimitive',
+      })
+    );
+
     return this;
   }
 
@@ -262,71 +292,55 @@ class AIRichMessage extends BaseBuilder {
     const padRow = (r) => [...r, ...Array(maxCols - r.length).fill('')];
 
     const unifiedRows = [
-      { is_header: true, cells: padRow(header).map((c) => this._render(String(c))) },
-      ...rows.map((r) => ({ is_header: false, cells: padRow(r).map((c) => this._render(String(c))) })),
+      {
+        is_header: true,
+        cells: padRow(header).map((c) => this._render(String(c))),
+        markdown_cells: padRow(header).map((c) => ({ text: this._render(String(c)) })),
+      },
+      ...rows.map((r) => ({
+        is_header: false,
+        cells: padRow(r).map((c) => this._render(String(c))),
+        markdown_cells: padRow(r).map((c) => ({ text: this._render(String(c)) })),
+      })),
     ];
 
-    const section = AIRichMessage._newLayout('Single', {
-      rows: unifiedRows,
-      __typename: 'GenATableUXPrimitive',
-    });
-
-    this._sections.push(section);
     this._submessages.push({
       messageType: 4,
       tableMetadata: {
         title: '',
-        rows: unifiedRows.map((r) => ({ items: r.cells, isHeading: r.is_header })),
+        rows: unifiedRows.map((r) => ({ items: r.cells, ...(r.is_header ? { isHeading: true } : {}) })),
       },
     });
+
+    this._sections.push(
+      AIRichMessage.newLayout('Single', {
+        rows: unifiedRows,
+        __typename: 'GenATableUXPrimitive',
+      })
+    );
+
     return this;
   }
 
   /**
-   * Tambah Suggestion Chip tunggal atau list
+   * Tambah Suggestion ActionRow Pills (Pill tombol rekomendasi prompt)
+   * @param {Array<string>|string} suggestion - Teks rekomendasi
    */
-  addChip(label, query = label) {
-    const section = AIRichMessage._newLayout('Single', {
-      suggestions: [
-        {
-          prompt_text: this._render(label),
-          query: this._render(query),
-          __typename: 'GenAISuggestionListPromptItem',
-        },
-      ],
-      __typename: 'GenAISuggestionListUXPrimitive',
-    });
-    this._sections.push(section);
-    return this;
-  }
-
-  /**
-   * Tambah link sitasi sumber
-   */
-  addCitation(index, url, title = '') {
-    const text = `[${index}] [${title || url}](${url})`;
-    return this.addText(text);
-  }
-
-  /**
-   * Tambah Suggestion Chips (tombol rekomendasi / prompt AI di bawah pesan)
-   * @param {Array<string>} suggestions - Daftar teks pilihan
-   */
-  addSuggest(suggestions = []) {
-    const list = Array.isArray(suggestions) ? suggestions : [suggestions];
-    const items = list.map((text) => ({
+  addSuggest(suggestion) {
+    const list = Array.isArray(suggestion) ? suggestion : [suggestion];
+    const suggest = list.map((text) => ({
       prompt_text: this._render(text),
-      query: this._render(text),
-      __typename: 'GenAISuggestionListPromptItem',
+      prompt_type: 'SUGGESTED_PROMPT',
+      __typename: 'GenAIFollowUpSuggestionPillPrimitive',
     }));
 
-    const section = AIRichMessage._newLayout('Single', {
-      suggestions: items,
-      __typename: 'GenAISuggestionListUXPrimitive',
-    });
-
-    this._sections.push(section);
+    this._sections.push(AIRichMessage.newLayout('ActionRow', suggest));
     return this;
+  }
+
+  /** Alias untuk addSuggest */
+  addChip(label, query = label) {
+    return this.addSuggest([label]);
   }
 
   /**
@@ -334,78 +348,195 @@ class AIRichMessage extends BaseBuilder {
    */
   addTip(text) {
     const rendered = this._render(text);
-    const section = AIRichMessage._newLayout('Single', {
-      text: 'ⓘ ' + rendered,
-      __typename: 'GenAIMetadataTextPrimitive',
+    this._submessages.push({
+      messageType: 2,
+      messageText: rendered,
     });
 
-    this._sections.push(section);
-    this._submessages.push({ messageType: 2, messageText: rendered });
+    this._sections.push(
+      AIRichMessage.newLayout('Single', {
+        text: rendered,
+        __typename: 'GenAIMetadataTextPrimitive',
+      })
+    );
+
     return this;
   }
 
   /**
-   * Tambah Interactive HTML Widget / Mini App / Canvas Game (seperti Dino Runner)
-   * @param {string} htmlPayload - Kode HTML, CSS, dan JavaScript
+   * Tambah blok HTML / Interactive Canvas
+   * @param {string} html - Kode HTML
    * @param {Object} [options]
-   * @param {Array<string>} [options.trustedSources=['nixel.dev']] - Domain sumber yang di-whitelist
-   * @param {string} [options.typename='GenAIaeacdsnwHtmlPrimitive'] - Typename primitive HTML
+   * @param {Array<string>} [options.trustedSources]
    */
-  addHtml(htmlPayload, { trustedSources = ['nixel.dev'], typename = 'GenAIaeacdsnwHtmlPrimitive' } = {}) {
-    if (typeof htmlPayload !== 'string') {
-      throw new TypeError('HTML payload harus berupa string');
-    }
-
-    const section = AIRichMessage._newLayout('Single', {
-      payload: htmlPayload,
-      trusted_sources: Array.isArray(trustedSources) ? trustedSources : [trustedSources],
-      __typename: typename,
-    });
-
-    this._sections.push(section);
+  addHtml(html, { trustedSources = ['nixel.dev', 'whatsapp.com'] } = {}) {
+    const rendered = this._render(html);
     this._submessages.push({
       messageType: 2,
-      messageText: 'Interactive HTML Widget',
+      messageText: rendered,
     });
+
+    this._sections.push(
+      AIRichMessage.newLayout('Single', {
+        html_code: rendered,
+        trusted_sources: Array.isArray(trustedSources) ? trustedSources : [trustedSources],
+        __typename: 'GenAIaeacdsnwHtmlPrimitive',
+      })
+    );
+
     return this;
   }
 
-  build(jid, options = {}) {
+  /**
+   * Tambah gambar AI
+   */
+  addImage(imageUrl) {
+    const list = Array.isArray(imageUrl) ? imageUrl : [imageUrl];
+    const imageUrls = list.map((url) => ({
+      imagePreviewUrl: url,
+      imageHighResUrl: url,
+      sourceUrl: 'https://whatsapp.com',
+    }));
+
+    this._submessages.push({
+      messageType: 1,
+      gridImageMetadata: {
+        gridImageUrl: {
+          imagePreviewUrl: list[0],
+        },
+        imageUrls,
+      },
+    });
+
+    imageUrls.forEach(({ imagePreviewUrl }) => {
+      this._sections.push(
+        AIRichMessage.newLayout('Single', {
+          media: {
+            url: imagePreviewUrl,
+            mime_type: 'image/png',
+          },
+          imagine_type: 'IMAGE',
+          status: { status: 'READY' },
+          __typename: 'GenAIImaginePrimitive',
+        })
+      );
+    });
+
+    return this;
+  }
+
+  /**
+   * Tambah video AI
+   */
+  addVideo(videoUrl) {
+    const list = Array.isArray(videoUrl) ? videoUrl : [videoUrl];
+    const videoUrls = list.map((item) => {
+      const [url, duration = 0] = item.split('|');
+      return {
+        videoPreviewUrl: url,
+        videoHighResUrl: url,
+        duration: Number(duration) || 0,
+        sourceUrl: 'https://whatsapp.com',
+      };
+    });
+
+    this._submessages.push({
+      messageType: 2,
+      messageText: '[ CANNOT_LOAD_VIDEO ]',
+    });
+
+    videoUrls.forEach(({ videoPreviewUrl, duration }) => {
+      this._sections.push(
+        AIRichMessage.newLayout('Single', {
+          media: {
+            url: videoPreviewUrl,
+            mime_type: 'video/mp4',
+            duration,
+          },
+          imagine_type: 'ANIMATE',
+          status: { status: 'READY' },
+          __typename: 'GenAIImaginePrimitive',
+        })
+      );
+    });
+
+    return this;
+  }
+
+  /**
+   * Tambah link sitasi sumber
+   */
+  addSource(sources = []) {
+    const list = sources.every((item) => typeof item === 'string') ? [sources] : sources;
+    const source = list.map(([profile_url, url, text]) => ({
+      source_type: 'THIRD_PARTY',
+      source_display_name: text ?? '',
+      source_subtitle: 'AI',
+      source_url: url ?? '',
+      favicon: {
+        url: profile_url ?? '',
+        mime_type: 'image/jpeg',
+        width: 16,
+        height: 16,
+      },
+    }));
+
+    this._sections.push(
+      AIRichMessage.newLayout('Single', {
+        sources: source,
+        __typename: 'GenAISearchResultPrimitive',
+      })
+    );
+
+    return this;
+  }
+
+  build(jid, {
+    forwarded = true,
+    includesUnifiedResponse = true,
+    includesSubmessages = true,
+    quoted,
+    quotedParticipant,
+    ...options
+  } = {}) {
     if (this._sections.length === 0) {
       throw new ContentValidationError('Minimal 1 konten (addText/addCode/addTable/addSuggest) sebelum build()');
     }
 
     const { title, footer } = this._renderAll();
-    const finalSections = [...this._sections];
-
-    if (footer) {
-      finalSections.push(
-        AIRichMessage._newLayout('Single', {
-          text: footer,
-          __typename: 'GenAIMetadataTextPrimitive',
-        })
-      );
-    }
+    const finalSections = footer
+      ? [
+          ...this._sections,
+          AIRichMessage.newLayout('Single', {
+            text: footer,
+            __typename: 'GenAIMetadataTextPrimitive',
+          }),
+        ]
+      : [...this._sections];
 
     const payloadJson = stringifyEscaped({
       response_id: this._responseId,
       sections: finalSections,
     });
 
-    // Wajib ada forwardedAiBotMessageInfo agar WhatsApp tahu ini format Meta AI resmi
-    const forward = {
-      forwardingScore: 1,
-      isForwarded: true,
-      forwardedAiBotMessageInfo: { botJid: '867051314767696@bot' },
-      forwardOrigin: 4,
-    };
-
-    const qObj = this._quotedMessage
+    const forward = forwarded
       ? {
-          stanzaId: this._quotedMessage?.key?.id || this._quotedMessage?.id,
-          participant: this._quotedMessage?.key?.participant || this._quotedMessage?.participant || this._quotedMessage?.key?.remoteJid,
+          forwardingScore: 1,
+          isForwarded: true,
+          forwardedAiBotMessageInfo: {
+            botJid: '0@bot',
+          },
+          forwardOrigin: 4,
+        }
+      : {};
+
+    const effectiveQuoted = quoted || this._quotedMessage;
+    const qObj = effectiveQuoted
+      ? {
+          stanzaId: effectiveQuoted?.key?.id || effectiveQuoted?.id,
+          participant: quotedParticipant || effectiveQuoted?.key?.participant || effectiveQuoted?.participant || effectiveQuoted?.key?.remoteJid,
           quotedType: 0,
-          quotedMessage: typeof this._quotedMessage === 'object' ? (this._quotedMessage.message ?? this._quotedMessage) : undefined,
+          quotedMessage: typeof effectiveQuoted === 'object' && effectiveQuoted !== null ? (effectiveQuoted.message ?? effectiveQuoted) : undefined,
         }
       : {};
 
@@ -417,17 +548,18 @@ class AIRichMessage extends BaseBuilder {
           deviceListMetadataVersion: 2,
           botMetadata: {
             messageDisclaimerText: title || '',
-            verificationMetadata: AIRichMessage.generateVerificationMetadata(),
-            botResponseId: this._botResponseId,
+            richResponseSourcesMetadata: {
+              sources: this._richResponseSources,
+            },
           },
         },
         botForwardedMessage: {
           message: {
             richResponseMessage: {
               messageType: 1,
-              submessages: this._submessages,
+              submessages: includesSubmessages ? this._submessages : [],
               unifiedResponse: {
-                data: Buffer.from(payloadJson).toString('base64'),
+                data: includesUnifiedResponse ? Buffer.from(payloadJson).toString('base64') : '',
               },
               contextInfo: {
                 ...forward,
@@ -442,50 +574,18 @@ class AIRichMessage extends BaseBuilder {
     );
   }
 
-  /**
-   * Kirim pesan AI Rich Response dengan trik auto-bypass edit agar langsung dirender di WhatsApp Android
-   */
   async send(jid, options = {}) {
-    const msg = this.build(jid, options);
+    const targetJid = resolveLidToPn(jid);
+    const msg = this.build(targetJid, options);
 
-    // 1. Relay pesan utama
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
       messageId: msg.key.id,
       ...options,
     });
 
-    // 2. Bypass Download WhatsApp Android via fast protocolMessage type 14 (Edit)
-    try {
-      const editMessage = generateWAMessageFromContent(
-        jid,
-        {
-          botForwardedMessage: {
-            message: {
-              protocolMessage: {
-                key: {
-                  remoteJid: jid,
-                  fromMe: true,
-                  id: msg.key.id,
-                },
-                type: 14,
-                editedMessage: msg.message,
-              },
-            },
-          },
-        },
-        { userJid: this.#client.user?.id }
-      );
-
-      await this.#client.relayMessage(jid, editMessage.message, {
-        messageId: editMessage.key.id,
-      });
-    } catch {
-      // Abaikan jika relay edit gagal di background
-    }
-
-    this._lastMessageKey = msg.key;
     return msg;
   }
 }
 
 export default AIRichMessage;
+

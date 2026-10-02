@@ -100,7 +100,7 @@ class MediaMessage extends BaseBuilder {
     const payload = {
       [this._type]: { url: resolvedUrl },
       caption: this._type !== 'sticker' && this._type !== 'audio' ? body : undefined,
-      contextInfo: this._contextInfo,
+      contextInfo: this._buildContextInfo(),
     };
 
     if (this._type === 'document') {
@@ -119,8 +119,14 @@ class MediaMessage extends BaseBuilder {
   }
 
   async send(jid, options = {}) {
+    const { default: resolveLidToPn } = await import('../helpers/lid-resolver.js');
+    const targetJid = resolveLidToPn(jid);
     const message = await this.build();
-    return await this.#client.sendMessage(jid, message, options);
+    const sendOptions = { ...options };
+    if (this._quotedMessage) {
+      sendOptions.quoted = this._quotedMessage;
+    }
+    return await this.#client.sendMessage(targetJid, message, sendOptions);
   }
 }
 
