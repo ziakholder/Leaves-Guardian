@@ -181,7 +181,6 @@ class CarouselMessage extends BaseBuilder {
       { userJid: this.#client.user?.id, ...options }
     );
 
-    const isGroup = targetJid.endsWith('@g.us');
     const additionalNodes = [
       {
         tag: 'biz',
@@ -194,14 +193,6 @@ class CarouselMessage extends BaseBuilder {
           },
         ],
       },
-      ...(isGroup
-        ? []
-        : [
-            {
-              tag: 'bot',
-              attrs: { biz_bot: '1' },
-            },
-          ]),
     ];
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {

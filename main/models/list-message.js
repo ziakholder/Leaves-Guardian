@@ -181,7 +181,6 @@ class ListMessage extends BaseBuilder {
       sendOpts.quoted = cleanQuoted;
     }
 
-    const isGroup = targetJid.endsWith('@g.us');
     const msg = generateWAMessageFromContent(targetJid, content, sendOpts);
     const additionalNodes = [
       {
@@ -195,14 +194,6 @@ class ListMessage extends BaseBuilder {
           },
         ],
       },
-      ...(isGroup
-        ? []
-        : [
-            {
-              tag: 'bot',
-              attrs: { biz_bot: '1' },
-            },
-          ]),
     ];
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
