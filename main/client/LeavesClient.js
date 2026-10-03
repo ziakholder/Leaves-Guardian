@@ -365,7 +365,7 @@ export class LeavesClient extends EventEmitter {
 
     this.connectionManager.on('raw_messages_upsert', (m) => {
       this.watchdog?.recordActivity('message');
-      if (m.type !== 'notify' || !Array.isArray(m.messages)) return;
+      if (!m || !Array.isArray(m.messages)) return;
       for (const rawMsg of m.messages) {
         const normalized = MessageNormalizer.normalize(rawMsg);
         if (normalized) {
@@ -789,6 +789,10 @@ export class LeavesClient extends EventEmitter {
 
   getUser() {
     return this.connectionManager.getUser();
+  }
+
+  get user() {
+    return this.getUser();
   }
 
   isReady() {

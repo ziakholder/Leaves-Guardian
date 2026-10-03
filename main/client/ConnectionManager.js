@@ -61,8 +61,7 @@ export class ConnectionManager extends EventEmitter {
         const requiresPatch = Boolean(
           message.buttonsMessage ||
           message.templateMessage ||
-          message.listMessage ||
-          message.interactiveMessage
+          message.listMessage
         );
         if (requiresPatch) {
           message = {
@@ -237,6 +236,10 @@ export class ConnectionManager extends EventEmitter {
       }
     } catch (_) {}
     return false;
+  }
+
+  getUser() {
+    return this.sock?.user || this.sock?.authState?.creds?.me || null;
   }
 
   async close() {
