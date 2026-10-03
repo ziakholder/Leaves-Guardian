@@ -192,21 +192,32 @@ class ProductMessage extends BaseBuilder {
     if (this._useBusinessCatalog) {
       await this.#client.relayMessage(msg.key.remoteJid, msg.message, { messageId: msg.key.id });
     } else {
+      const isGroup = targetJid.endsWith('@g.us');
+      const additionalNodes = [
+        {
+          tag: 'biz',
+          attrs: {},
+          content: [
+            {
+              tag: 'interactive',
+              attrs: { type: 'native_flow', v: '1' },
+              content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
+            },
+          ],
+        },
+        ...(isGroup
+          ? []
+          : [
+              {
+                tag: 'bot',
+                attrs: { biz_bot: '1' },
+              },
+            ]),
+      ];
+
       await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
         messageId: msg.key.id,
-        additionalNodes: [
-          {
-            tag: 'biz',
-            attrs: {},
-            content: [
-              {
-                tag: 'interactive',
-                attrs: { type: 'native_flow', v: '1' },
-                content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
-              },
-            ],
-          },
-        ],
+        additionalNodes,
       });
     }
 

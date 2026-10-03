@@ -56,7 +56,29 @@ export class ConnectionManager extends EventEmitter {
       syncFullHistory: false,
       connectTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
-      retryRequestDelayMs: 2000
+      retryRequestDelayMs: 2000,
+      patchMessageBeforeSending: (message) => {
+        const requiresPatch = Boolean(
+          message.buttonsMessage ||
+          message.templateMessage ||
+          message.listMessage ||
+          message.interactiveMessage
+        );
+        if (requiresPatch) {
+          message = {
+            viewOnceMessage: {
+              message: {
+                messageContextInfo: {
+                  deviceListMetadataVersion: 2,
+                  deviceListMetadata: {},
+                },
+                ...message,
+              },
+            },
+          };
+        }
+        return message;
+      }
     });
 
     this.eventManager.bindSocketEvents(this.sock, {
