@@ -3,6 +3,31 @@ import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, Browsers, ma
 import { Boom } from '@hapi/boom';
 import { ConnectionError, AuthenticationError } from '../errors/LeavesError.js';
 import { RECONNECT_REASONS, NON_RECOVERABLE_REASONS } from './ReconnectManager.js';
+import { normalizePhoneNumber } from './SessionManager.js';
+
+class MemoryRetryCache {
+  constructor(limit = 2000) {
+    this._data = new Map();
+    this._limit = limit;
+  }
+  get(key) {
+    return this._data.get(key);
+  }
+  set(key, val) {
+    this._data.set(key, val);
+    if (this._data.size > this._limit) {
+      const first = this._data.keys().next().value;
+      this._data.delete(first);
+    }
+    return true;
+  }
+  del(key) {
+    return this._data.delete(key);
+  }
+  flushAll() {
+    this._data.clear();
+  }
+}
 
 export class ConnectionManager extends EventEmitter {
   constructor(options = {}) {
@@ -13,13 +38,27 @@ export class ConnectionManager extends EventEmitter {
     this.loggerAdapter = options.loggerAdapter;
     this.eventManager = options.eventManager;
     this.socketFactory = options.socketFactory || makeWASocket;
-    this.browser = options.browser || Browsers.ubuntu('Chrome');
+    this.browser = options.browser || Browsers.macOS('Safari');
     this.markOnlineOnConnect = options.markOnlineOnConnect !== false;
     
     this.sock = null;
     this.isConnected = false;
     this._isShuttingDown = false;
     this._pairingRequested = false;
+    this._pairingTimeout = null;
+
+    // Retry & Message History Cache (Crucial for E2EE Signal Handshake & Multi-Device Delivery)
+    this.msgRetryCounterCache = new MemoryRetryCache(3000);
+    this.rawMessageHistory = new Map();
+  }
+
+  storeMessage(keyStr, messageObj) {
+    if (!keyStr || !messageObj) return;
+    this.rawMessageHistory.set(keyStr, messageObj);
+    if (this.rawMessageHistory.size > 2000) {
+      const first = this.rawMessageHistory.keys().next().value;
+      this.rawMessageHistory.delete(first);
+    }
   }
 
   async createSocket() {
@@ -41,6 +80,7 @@ export class ConnectionManager extends EventEmitter {
     }
 
     const logger = this.loggerAdapter ? this.loggerAdapter.createPinoLogger() : undefined;
+    const usePairing = !this.sessionManager.isRegistered() && this.sessionManager.authMethod === 'pairing';
 
     this.sock = this.socketFactory({
       version,
@@ -48,15 +88,25 @@ export class ConnectionManager extends EventEmitter {
         creds: auth.state.creds,
         keys: makeCacheableSignalKeyStore(auth.state.keys, logger)
       },
-      printQRInTerminal: false,
+      printQRInTerminal: !usePairing,
       logger,
       browser: this.browser,
       markOnlineOnConnect: this.markOnlineOnConnect,
-      generateHighQualityLinkPreview: true,
+      generateHighQualityLinkPreview: false,
       syncFullHistory: false,
       connectTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
-      retryRequestDelayMs: 2000,
+      retryRequestDelayMs: 250,
+      maxMsgRetryCount: 5,
+      msgRetryCounterCache: this.msgRetryCounterCache,
+      getMessage: async (key) => {
+        if (!key) return undefined;
+        const msgKey = `${key.remoteJid}:${key.id}`;
+        const stored = this.rawMessageHistory.get(msgKey);
+        if (stored?.message) return stored.message;
+        if (stored) return stored;
+        return undefined;
+      },
       patchMessageBeforeSending: (message) => {
         const requiresPatch = Boolean(
           message.buttonsMessage ||
@@ -85,6 +135,14 @@ export class ConnectionManager extends EventEmitter {
       onCredsUpdate: auth.saveCreds,
       onMessagesUpsert: (m) => {
         this.emit('socket_activity', { source: 'message' });
+        if (m && Array.isArray(m.messages)) {
+          for (const msg of m.messages) {
+            if (msg.key && msg.message) {
+              const k = `${msg.key.remoteJid}:${msg.key.id}`;
+              this.storeMessage(k, msg);
+            }
+          }
+        }
         this.emit('raw_messages_upsert', m);
       }
     });
@@ -99,6 +157,27 @@ export class ConnectionManager extends EventEmitter {
       });
     }
 
+    // Proactive single pairing trigger (Standard Baileys Flow)
+    if (usePairing && this.sessionManager.phoneNumber) {
+      if (this._pairingTimeout) {
+        clearTimeout(this._pairingTimeout);
+      }
+      this._pairingTimeout = setTimeout(async () => {
+        if (
+          !this.sessionManager.isRegistered() &&
+          !this.isConnected &&
+          !this._isShuttingDown &&
+          !this._pairingRequested
+        ) {
+          try {
+            await this.requestPairingCode(this.sessionManager.phoneNumber);
+          } catch (err) {
+            // Handled inside requestPairingCode
+          }
+        }
+      }, 3000);
+    }
+
     return this.sock;
   }
 
@@ -110,146 +189,115 @@ export class ConnectionManager extends EventEmitter {
       return null;
     }
 
-    const cleanNumber = String(phoneNumber || this.sessionManager.phoneNumber).replace(/[^0-9]/g, '');
+    const cleanNumber = normalizePhoneNumber(phoneNumber || this.sessionManager.phoneNumber);
     if (!cleanNumber) {
       throw new ConnectionError('Phone number is required for pairing code authentication');
     }
 
+    if (this._pairingRequested) {
+      return null;
+    }
+    this._pairingRequested = true;
+
     try {
-      this._pairingRequested = true;
-      await new Promise((resolve) => setTimeout(resolve, 1500));
       const code = await this.sock.requestPairingCode(cleanNumber);
-      this.emit('pairing_code', { code, phoneNumber: cleanNumber });
+      this.emit('pairing_code', { phoneNumber: cleanNumber, code });
       return code;
     } catch (err) {
       this._pairingRequested = false;
-      throw new ConnectionError(`Failed to request pairing code: ${err.message}`, { cause: err });
+      this.terminal.error('PAIRING', `Failed to request pairing code: ${err.message}`);
+      throw new ConnectionError(`Pairing code request failed: ${err.message}`, 'PAIRING_FAILED', { cause: err });
     }
   }
 
   _handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;
 
-    // Deterministic Pairing Code trigger: ONLY when QR is generated (signaling socket is ready for auth)
-    if (
-      qr &&
-      !this.sessionManager.isRegistered() &&
-      this.sessionManager.authMethod === 'pairing' &&
-      this.sessionManager.phoneNumber &&
-      !this._pairingRequested
-    ) {
-      this._pairingRequested = true;
-      this.emit('pairing_eligible', { phoneNumber: this.sessionManager.phoneNumber });
-    }
-
-    if (qr && this.sessionManager.authMethod !== 'pairing') {
+    if (qr) {
       this.emit('qr', qr);
     }
 
     if (connection === 'connecting') {
+      this.isConnected = false;
       this.emit('connecting');
     } else if (connection === 'open') {
       this.isConnected = true;
       this._pairingRequested = false;
+      if (this._pairingTimeout) {
+        clearTimeout(this._pairingTimeout);
+        this._pairingTimeout = null;
+      }
       this.reconnectManager.reset();
       this.emit('connection_open', this.sock);
     } else if (connection === 'close') {
       this.isConnected = false;
-      this._handleDisconnection(lastDisconnect);
+      this._pairingRequested = false;
+      if (this._pairingTimeout) {
+        clearTimeout(this._pairingTimeout);
+        this._pairingTimeout = null;
+      }
+
+      const statusCode = lastDisconnect?.error instanceof Boom
+        ? lastDisconnect.error.output.statusCode
+        : (lastDisconnect?.error?.code || null);
+      
+      const reason = this._classifyDisconnect(statusCode);
+      this.emit('connection_close', { statusCode, reason, error: lastDisconnect?.error });
+
+      if (reason === RECONNECT_REASONS.LOGGED_OUT) {
+        this.emit('logged_out', lastDisconnect?.error);
+      } else if (!this._isShuttingDown) {
+        this._handleAutoReconnect(reason);
+      }
     }
   }
 
-  _handleDisconnection(lastDisconnect) {
-    if (this._isShuttingDown) {
-      this.emit('connection_close', { reason: 'SHUTDOWN' });
+  _classifyDisconnect(statusCode) {
+    if (!statusCode) return RECONNECT_REASONS.UNKNOWN_TRANSIENT;
+    if (statusCode === DisconnectReason.loggedOut) return RECONNECT_REASONS.LOGGED_OUT;
+    if (statusCode === DisconnectReason.badSession) return RECONNECT_REASONS.SESSION_CORRUPTED;
+    if (statusCode === DisconnectReason.connectionReplaced) return RECONNECT_REASONS.CONNECTION_REPLACED;
+    if (statusCode === DisconnectReason.connectionLost) return RECONNECT_REASONS.NETWORK_LOST;
+    if (statusCode === DisconnectReason.timedOut) return RECONNECT_REASONS.TIMED_OUT;
+    if (statusCode === DisconnectReason.restartRequired) return RECONNECT_REASONS.RESTART_REQUIRED;
+    if (statusCode === DisconnectReason.multideviceMismatch) return RECONNECT_REASONS.MULTIDEVICE_MISMATCH;
+    return RECONNECT_REASONS.UNKNOWN_TRANSIENT;
+  }
+
+  async _handleAutoReconnect(reason) {
+    if (NON_RECOVERABLE_REASONS.has(reason)) {
       return;
     }
 
-    const err = lastDisconnect?.error ? new Boom(lastDisconnect.error) : null;
-    const statusCode = err?.output?.statusCode;
-    let reason = RECONNECT_REASONS.UNKNOWN_TRANSIENT;
-    let isNonRecoverable = false;
-
-    if ((statusCode === DisconnectReason.loggedOut || statusCode === 401) && this.sessionManager.isRegistered()) {
-      reason = NON_RECOVERABLE_REASONS.LOGGED_OUT;
-      isNonRecoverable = true;
-      this.emit('logged_out', new AuthenticationError('Account logged out of WhatsApp', { statusCode }));
-    } else if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-      reason = RECONNECT_REASONS.UNKNOWN_TRANSIENT;
-      this._pairingRequested = false;
-    } else if (statusCode === DisconnectReason.connectionClosed || statusCode === 428) {
-      reason = RECONNECT_REASONS.CONNECTION_CLOSED;
-    } else if (statusCode === DisconnectReason.connectionLost || statusCode === 408) {
-      reason = RECONNECT_REASONS.NETWORK_ERROR;
-    } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
-      reason = RECONNECT_REASONS.UNKNOWN_TRANSIENT;
-    } else if (statusCode === DisconnectReason.timedOut) {
-      reason = RECONNECT_REASONS.NETWORK_ERROR;
-    } else if (statusCode === 503) {
-      reason = RECONNECT_REASONS.SERVER_UNAVAILABLE;
-    } else if (statusCode === 440) {
-      reason = RECONNECT_REASONS.CONFLICT;
+    const decision = this.reconnectManager.shouldReconnect(reason);
+    if (!decision.shouldReconnect) {
+      this.emit('reconnect_failed', { reason, attempts: decision.attempts });
+      return;
     }
 
-    this.emit('connection_close', { statusCode, reason, error: err });
+    this.emit('reconnecting', {
+      attempt: decision.attempts,
+      delayMs: decision.delayMs,
+      reason
+    });
 
-    if (!isNonRecoverable && this.reconnectManager.isRecoverable(reason)) {
-      this.reconnectManager.schedule(reason, async () => {
-        this.emit('reconnecting', { reason });
-        try {
-          await this.createSocket();
-        } catch (reconnectErr) {
-          this.emit('error', reconnectErr);
-        }
-      });
+    await new Promise(resolve => setTimeout(resolve, decision.delayMs));
+    if (!this._isShuttingDown) {
+      await this.createSocket();
     }
   }
 
-  /**
-   * Synchronous dispatch of WebSocket ping control frame across the wire.
-   * @returns {boolean} True if ping frame was dispatched, false if socket unavailable or errored.
-   */
-  sendPing() {
-    if (!this.isConnected || !this.sock) {
-      return false;
-    }
-    try {
-      if (this.sock.ws && typeof this.sock.ws.ping === 'function') {
-        this.sock.ws.ping();
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  /**
-   * Initiates termination of the active Baileys socket with Boom 408 status code.
-   * @param {string} [reason='ZOMBIE_SOCKET_DETECTED']
-   * @returns {boolean|Promise<boolean>} True if termination request was accepted and dispatched (sock.end).
-   */
-  terminateSocket(reason = 'ZOMBIE_SOCKET_DETECTED') {
-    if (!this.sock) return false;
-    try {
-      if (typeof this.sock.end === 'function') {
-        this.sock.end(new Boom(`Socket terminated: ${reason}`, { statusCode: 408 }));
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  getUser() {
-    return this.sock?.user || this.sock?.authState?.creds?.me || null;
-  }
-
-  async close() {
+  async closeSocket() {
     this._isShuttingDown = true;
-    this.reconnectManager.setShutdown();
-    this.sessionManager.releaseLock();
-    if (this.sock && typeof this.sock.end === 'function') {
+    if (this._pairingTimeout) {
+      clearTimeout(this._pairingTimeout);
+      this._pairingTimeout = null;
+    }
+    if (this.sock) {
       try {
         this.sock.end(undefined);
       } catch (_) {}
+      this.sock = null;
     }
     this.isConnected = false;
   }

@@ -2,20 +2,32 @@ import fs from 'fs';
 import path from 'path';
 
 /**
- * Resolves a WhatsApp LID (e.g., '35120501268714:0@lid' or '35120501268714@lid')
- * to its corresponding phone number JID ('6282329716670@s.whatsapp.net')
- * using Baileys local session mapping files.
+ * Normalizes and decodes a WhatsApp JID:
+ * 1. Strips companion device suffixes (e.g. '6282329716670:49@s.whatsapp.net' -> '6282329716670@s.whatsapp.net')
+ * 2. Resolves LID ('35120501268714:0@lid' or '35120501268714@lid') to Phone Number JID ('628xxxx@s.whatsapp.net')
  *
- * @param {string} lid
+ * @param {string} jid
  * @param {string} [sessionDir='./session']
  * @returns {string}
  */
-export function resolveLidToPn(lid, sessionDir = './session') {
-  if (!lid || typeof lid !== 'string' || !lid.includes('@lid')) {
-    return lid;
+export function resolveLidToPn(jid, sessionDir = './session') {
+  if (!jid || typeof jid !== 'string') {
+    return jid;
   }
 
-  const rawLid = lid.split('@')[0].split(':')[0];
+  // 1. Strip device index (e.g. :49@s.whatsapp.net or :0@lid)
+  let cleanJid = jid;
+  if (/:\d+@/gi.test(cleanJid)) {
+    const [userWithDev, server] = cleanJid.split('@');
+    const user = userWithDev.split(':')[0];
+    cleanJid = `${user}@${server}`;
+  }
+
+  if (!cleanJid.includes('@lid')) {
+    return cleanJid;
+  }
+
+  const rawLid = cleanJid.split('@')[0];
   const candidateDirs = [
     sessionDir,
     './session',
@@ -33,13 +45,14 @@ export function resolveLidToPn(lid, sessionDir = './session') {
         const content = fs.readFileSync(filePath, 'utf8');
         const pn = JSON.parse(content);
         if (pn && typeof pn === 'string') {
-          return pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
+          const cleanPn = pn.split('@')[0].split(':')[0];
+          return `${cleanPn}@s.whatsapp.net`;
         }
       }
     } catch (_) {}
   }
 
-  return lid;
+  return cleanJid;
 }
 
 export default resolveLidToPn;

@@ -1,13 +1,22 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import { SessionError } from '../errors/LeavesError.js';
+
+export function normalizePhoneNumber(rawNumber) {
+  if (!rawNumber) return '';
+  let str = String(rawNumber).replace(/[^0-9]/g, '');
+  if (str.startsWith('0')) {
+    str = '62' + str.slice(1);
+  }
+  return str;
+}
 
 export class SessionManager {
   constructor(options = {}) {
     this.directory = options.directory || './session';
     this.authMethod = options.method || (options.phoneNumber ? 'pairing' : 'qr');
-    this.phoneNumber = options.phoneNumber ? String(options.phoneNumber).replace(/[^0-9]/g, '') : null;
+    this.phoneNumber = options.phoneNumber ? normalizePhoneNumber(options.phoneNumber) : null;
     this.lockFile = path.join(this.directory, '.session.lock');
     this._isLocked = false;
     this.authState = null;
@@ -95,6 +104,16 @@ export class SessionManager {
     this.acquireLock();
     try {
       const { state, saveCreds } = await useMultiFileAuthState(this.directory);
+
+      // If pairing auth is used but registration was not completed in a previous attempt,
+      // clean stale uncompleted companion link state to allow fresh pairing
+      if (this.authMethod === 'pairing' && state.creds && !state.creds.registered) {
+        if (state.creds.me || state.creds.pairingCode) {
+          delete state.creds.me;
+          delete state.creds.pairingCode;
+        }
+      }
+
       this.authState = { state, saveCreds };
       this.saveCreds = saveCreds;
       return this.authState;

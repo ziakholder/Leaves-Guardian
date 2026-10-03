@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import qrcode from 'qrcode-terminal';
+import { Browsers } from '@whiskeysockets/baileys';
 import { LeavesTerminal } from './LeavesTerminal.js';
 import { LoggerAdapter } from './LoggerAdapter.js';
 import { SessionManager } from './SessionManager.js';
@@ -97,7 +98,7 @@ export class LeavesClient extends EventEmitter {
       loggerAdapter: this.loggerAdapter,
       eventManager: this.eventManager,
       socketFactory: options.socketFactory,
-      browser: options.browser || ['Leaves Guardian', 'Chrome', '1.0.0'],
+      browser: options.browser || Browsers.macOS('Safari'),
       markOnlineOnConnect: options.markOnlineOnConnect !== false
     });
 
@@ -229,18 +230,17 @@ export class LeavesClient extends EventEmitter {
       this.emit('qr', qr);
     });
 
-    this.connectionManager.on('pairing_eligible', async ({ phoneNumber }) => {
+    this.connectionManager.on('pairing_eligible', ({ phoneNumber }) => {
       this.emit('pairing_required', { phoneNumber });
-      try {
-        await this.connectionManager.requestPairingCode(phoneNumber);
-      } catch (err) {
-        this.terminal.error('PAIRING', err.message);
-        this.emit('error', err);
-      }
     });
 
     this.connectionManager.on('pairing_code', (data) => {
-      console.log(`\n🔑 WHATSAPP PAIRING CODE: ${data.code}\n`);
+      console.log(`\n\x1b[36m╔═══════════════════════════════════════════════════╗\x1b[0m`);
+      console.log(`\x1b[36m║\x1b[0m \x1b[1m\x1b[32m🌿 WHATSAPP PAIRING CODE GENERATED\x1b[0m                \x1b[36m║\x1b[0m`);
+      console.log(`\x1b[36m╠═══════════════════════════════════════════════════╣\x1b[0m`);
+      console.log(`\x1b[36m║\x1b[0m 📱 Nomor : \x1b[33m+${data.phoneNumber}\x1b[0m`);
+      console.log(`\x1b[36m║\x1b[0m 🔑 Kode  : \x1b[1m\x1b[35m${data.code}\x1b[0m`);
+      console.log(`\x1b[36m╚═══════════════════════════════════════════════════╝\x1b[0m\n`);
       this.terminal.success('PAIRING', `Pairing code generated for ${this.terminal.mask(data.phoneNumber)}: ${data.code}`);
       this.emit('pairing_code', data);
     });
@@ -449,7 +449,9 @@ export class LeavesClient extends EventEmitter {
     if (!this.isReady()) {
       throw new ConnectionError(`Cannot send message while client is not READY (current: ${this.state})`);
     }
-    const targetJid = resolveLidToPn(jid);
+    const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
+      ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
+      : jid;
     let res;
     // If a builder instance is passed directly
     if (contentOrBuilder && typeof contentOrBuilder.send === 'function') {
@@ -461,12 +463,18 @@ export class LeavesClient extends EventEmitter {
       }
       res = await sock.sendMessage(targetJid, contentOrBuilder, options);
     }
+    if (res && res.key && (res.message || typeof contentOrBuilder === 'object')) {
+      const k = `${res.key.remoteJid}:${res.key.id}`;
+      this.connectionManager.storeMessage(k, res);
+    }
     this.throughput.messagesSentTotal++;
     return res;
   }
 
   async sendMessage(jid, contentOrBuilder, options = {}) {
-    const targetJid = resolveLidToPn(jid);
+    const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
+      ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
+      : jid;
     if (options?.traffic?.enabled === false || this.options?.traffic?.enabled === false) {
       return this._rawSend(targetJid, contentOrBuilder, options);
     }
