@@ -157,23 +157,15 @@ class CarouselMessage extends BaseBuilder {
     );
 
     return {
-      viewOnceMessage: {
-        message: {
-          messageContextInfo: {
-            deviceListMetadata: {},
-            deviceListMetadataVersion: 2,
-          },
-          interactiveMessage: {
-            header: { hasMediaAttachment: false },
-            body: { text: body },
-            footer: footer ? { text: footer } : undefined,
-            carouselMessage: {
-              cards,
-              messageVersion: 1,
-            },
-            contextInfo: this._contextInfo,
-          },
+      interactiveMessage: {
+        header: { hasMediaAttachment: false },
+        body: { text: body },
+        footer: footer ? { text: footer } : undefined,
+        carouselMessage: {
+          cards,
+          messageVersion: 1,
         },
+        contextInfo: this._contextInfo,
       },
     };
   }

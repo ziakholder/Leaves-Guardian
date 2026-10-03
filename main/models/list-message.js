@@ -146,27 +146,19 @@ class ListMessage extends BaseBuilder {
     }
 
     return {
-      viewOnceMessage: {
-        message: {
-          messageContextInfo: {
-            deviceListMetadata: {},
-            deviceListMetadataVersion: 2,
-          },
-          interactiveMessage: {
-            header: Object.keys(header).length > 0 ? header : undefined,
-            body: { text: body },
-            footer: footer ? { text: footer } : undefined,
-            nativeFlowMessage: {
-              buttons: [
-                {
-                  name: 'single_select',
-                  buttonParamsJson,
-                },
-              ],
+      interactiveMessage: {
+        header: Object.keys(header).length > 0 ? header : undefined,
+        body: { text: body },
+        footer: footer ? { text: footer } : undefined,
+        nativeFlowMessage: {
+          buttons: [
+            {
+              name: 'single_select',
+              buttonParamsJson,
             },
-            contextInfo: this._buildContextInfo(),
-          },
+          ],
         },
+        contextInfo: this._buildContextInfo(),
       },
     };
   }

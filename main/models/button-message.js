@@ -228,23 +228,15 @@ class ButtonMessage extends BaseBuilder {
     }
 
     return {
-      viewOnceMessage: {
-        message: {
-          messageContextInfo: {
-            deviceListMetadata: {},
-            deviceListMetadataVersion: 2,
-          },
-          interactiveMessage: {
-            header: Object.keys(header).length > 0 ? header : undefined,
-            body: { text: body },
-            footer: footer ? { text: footer } : undefined,
-            nativeFlowMessage: {
-              buttons: this._buttons,
-              messageParamsJson: Object.keys(this._params).length > 0 ? JSON.stringify(this._params) : undefined,
-            },
-            contextInfo: this._buildContextInfo(),
-          },
+      interactiveMessage: {
+        header: Object.keys(header).length > 0 ? header : undefined,
+        body: { text: body },
+        footer: footer ? { text: footer } : undefined,
+        nativeFlowMessage: {
+          buttons: this._buttons,
+          messageParamsJson: Object.keys(this._params).length > 0 ? JSON.stringify(this._params) : undefined,
         },
+        contextInfo: this._buildContextInfo(),
       },
     };
   }
