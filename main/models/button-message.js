@@ -1,5 +1,6 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
 import crypto from 'crypto';
+import fs from 'fs';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
 import { resolveLidToPn } from '../helpers/lid-resolver.js';
@@ -256,7 +257,6 @@ class ButtonMessage extends BaseBuilder {
     const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
       ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
       : jid;
-    const content = await this.build();
     const sendOpts = { userJid: this.#client.user?.id, ...options };
     if (this._quotedMessage) {
       const cleanQuoted = { ...this._quotedMessage };
@@ -269,23 +269,139 @@ class ButtonMessage extends BaseBuilder {
       sendOpts.quoted = cleanQuoted;
     }
 
-    const wrappedContent = {
-      viewOnceMessage: {
-        message: {
-          messageContextInfo: {
-            deviceListMetadata: {},
-            deviceListMetadataVersion: 2,
-            messageSecret: crypto.randomBytes(32),
-          },
-          ...content,
-        },
-      },
-    };
+    const { title, body, footer } = this._renderAll();
 
-    const msg = generateWAMessageFromContent(targetJid, wrappedContent, sendOpts);
+    // Extract up to 3 buttons for universal buttonsMessage protocol (100% visible on WhatsApp Web + Mobile)
+    const legacyButtons = [];
+    for (const b of this._buttons) {
+      if (b.name === 'quick_reply') {
+        const parsed = typeof b.buttonParamsJson === 'string' ? JSON.parse(b.buttonParamsJson) : b.buttonParamsJson;
+        legacyButtons.push({
+          buttonId: parsed.id || '.menu',
+          buttonText: { displayText: parsed.display_text || 'Tombol' },
+          type: 1,
+        });
+      } else if (b.name === 'single_select') {
+        const parsed = typeof b.buttonParamsJson === 'string' ? JSON.parse(b.buttonParamsJson) : b.buttonParamsJson;
+        legacyButtons.push({
+          buttonId: '.menu all',
+          buttonText: { displayText: parsed.title || '📂 Kategori Menu' },
+          type: 1,
+        });
+      } else if (b.buttonId) {
+        legacyButtons.push({
+          buttonId: b.buttonId,
+          buttonText: { displayText: b.buttonText?.displayText || 'Tombol' },
+          type: 1,
+        });
+      }
+      if (legacyButtons.length >= 3) break;
+    }
+
+    let payload;
+    let _thumbnail = null;
+    if (this._media) {
+      if (Buffer.isBuffer(this._media)) {
+        try {
+          const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+          const img = await loadImage(this._media);
+          const canvas = createCanvas(300, 170);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, 300, 170);
+          _thumbnail = canvas.toBuffer('image/jpeg');
+        } catch (_) {
+          if (this._media.length <= 50000) _thumbnail = this._media;
+        }
+      } else if (typeof this._media === 'string' && fs.existsSync(this._media)) {
+        try {
+          const raw = fs.readFileSync(this._media);
+          const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+          const img = await loadImage(raw);
+          const canvas = createCanvas(300, 170);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, 300, 170);
+          _thumbnail = canvas.toBuffer('image/jpeg');
+        } catch (_) {}
+      }
+    }
+
+    if (legacyButtons.length > 0) {
+      payload = {
+        viewOnceMessage: {
+          message: {
+            messageContextInfo: {
+              deviceListMetadata: {},
+              deviceListMetadataVersion: 2,
+              messageSecret: crypto.randomBytes(32),
+            },
+            buttonsMessage: {
+              contentText: body,
+              footerText: footer || '',
+              headerType: _thumbnail ? 6 : 1,
+              ...(_thumbnail ? {
+                locationMessage: {
+                  degreesLatitude: 0,
+                  degreesLongitude: 0,
+                  name: title || 'Master Roxy MD',
+                  address: 'Saint-Class Water Magician',
+                  jpegThumbnail: _thumbnail,
+                }
+              } : {}),
+              buttons: legacyButtons,
+            },
+          },
+        },
+      };
+    } else {
+      const content = await this.build();
+      payload = {
+        viewOnceMessage: {
+          message: {
+            messageContextInfo: {
+              deviceListMetadata: {},
+              deviceListMetadataVersion: 2,
+              messageSecret: crypto.randomBytes(32),
+            },
+            ...content,
+          },
+        },
+      };
+    }
+
+    const isGroup = typeof targetJid === 'string' && targetJid.endsWith('@g.us');
+    const additionalNodes = [
+      {
+        tag: 'biz',
+        attrs: {},
+        content: [{
+          tag: 'interactive',
+          attrs: {
+            type: 'native_flow',
+            v: '1',
+          },
+          content: [{
+            tag: 'native_flow',
+            attrs: {
+              v: '9',
+              name: 'mixed',
+            },
+          }],
+        }],
+      },
+    ];
+
+    if (!isGroup) {
+      additionalNodes.push({
+        tag: 'bot',
+        attrs: { biz_bot: '1' },
+      });
+    }
+
+    const msg = generateWAMessageFromContent(targetJid, payload, sendOpts);
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
       messageId: msg.key.id,
+      additionalNodes,
     });
 
     return msg;
