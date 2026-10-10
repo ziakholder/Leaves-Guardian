@@ -176,9 +176,21 @@ class CarouselMessage extends BaseBuilder {
       : jid;
     const content = await this.build();
 
+    const wrappedContent = {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          ...content,
+        },
+      },
+    };
+
     const msg = generateWAMessageFromContent(
       targetJid,
-      content,
+      wrappedContent,
       { userJid: this.#client.user?.id, ...options }
     );
 

@@ -825,6 +825,19 @@ export class LeavesClient extends EventEmitter {
     return this.getUser();
   }
 
+  get waUploadToServer() {
+    const sock = this.getRawSocket();
+    return sock?.waUploadToServer ? sock.waUploadToServer.bind(sock) : undefined;
+  }
+
+  async relayMessage(jid, message, options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock || typeof sock.relayMessage !== 'function') {
+      throw new Error('Underlying socket not available for relayMessage');
+    }
+    return await sock.relayMessage(jid, message, options);
+  }
+
   isReady() {
     return this.state === CLIENT_STATES.READY;
   }

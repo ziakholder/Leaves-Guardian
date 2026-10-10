@@ -213,16 +213,26 @@ class ButtonMessage extends BaseBuilder {
         ...this._mediaOptions,
       };
 
-      const prepared = await prepareWAMessageMedia(mediaPayload, {
-        upload: this.#client.waUploadToServer,
-      });
+      try {
+        const uploadFn = this.#client.waUploadToServer
+          ? (typeof this.#client.waUploadToServer === 'function' ? this.#client.waUploadToServer.bind(this.#client) : this.#client.waUploadToServer)
+          : (this.#client.upload ? this.#client.upload.bind(this.#client) : undefined);
 
-      const messageKey = `${this._mediaType}Message`;
-      header = {
-        title: title || undefined,
-        hasMediaAttachment: true,
-        [messageKey]: prepared[messageKey],
-      };
+        const prepared = await prepareWAMessageMedia(mediaPayload, {
+          upload: uploadFn,
+        });
+
+        const messageKey = `${this._mediaType}Message`;
+        header = {
+          title: title || undefined,
+          hasMediaAttachment: true,
+          [messageKey]: prepared[messageKey],
+        };
+      } catch (mediaErr) {
+        if (title) {
+          header = { title, hasMediaAttachment: false };
+        }
+      }
     } else if (title) {
       header = { title, hasMediaAttachment: false };
     }
@@ -258,7 +268,19 @@ class ButtonMessage extends BaseBuilder {
       sendOpts.quoted = cleanQuoted;
     }
 
-    const msg = generateWAMessageFromContent(targetJid, content, sendOpts);
+    const wrappedContent = {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          ...content,
+        },
+      },
+    };
+
+    const msg = generateWAMessageFromContent(targetJid, wrappedContent, sendOpts);
     const additionalNodes = [
       {
         tag: 'biz',
