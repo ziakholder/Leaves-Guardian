@@ -819,7 +819,8 @@ export class LeavesClient extends EventEmitter {
 
   getUser() {
     if (this._customUser !== undefined) return this._customUser;
-    return this.connectionManager.getUser();
+    const sock = this.getRawSocket();
+    return sock?.user || sock?.authState?.creds?.me || null;
   }
 
   get user() {

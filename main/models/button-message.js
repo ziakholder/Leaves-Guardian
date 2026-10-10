@@ -257,7 +257,11 @@ class ButtonMessage extends BaseBuilder {
     const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
       ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
       : jid;
-    const sendOpts = { userJid: this.#client.user?.id, ...options };
+    let userJid = null;
+    try {
+      userJid = this.#client?.user?.id || this.#client?.authState?.creds?.me?.id || null;
+    } catch (_) {}
+    const sendOpts = { ...(userJid ? { userJid } : {}), ...options };
     if (this._quotedMessage) {
       const cleanQuoted = { ...this._quotedMessage };
       if (cleanQuoted.key) {
