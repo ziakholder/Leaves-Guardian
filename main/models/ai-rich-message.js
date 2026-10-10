@@ -575,7 +575,9 @@ class AIRichMessage extends BaseBuilder {
   }
 
   async send(jid, options = {}) {
-    const targetJid = resolveLidToPn(jid);
+    const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
+      ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
+      : jid;
     const msg = this.build(targetJid, options);
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {

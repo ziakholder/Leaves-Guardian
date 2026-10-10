@@ -15,8 +15,10 @@ export function normalizePhoneNumber(rawNumber) {
 export class SessionManager {
   constructor(options = {}) {
     this.directory = options.directory || './session';
-    this.authMethod = options.method || (options.phoneNumber ? 'pairing' : 'qr');
+    const methodRaw = (options.method || '').toLowerCase();
+    this.authMethod = (methodRaw === 'code' || methodRaw === 'pairing') ? 'pairing' : (methodRaw === 'qr' ? 'qr' : (options.phoneNumber ? 'pairing' : 'qr'));
     this.phoneNumber = options.phoneNumber ? normalizePhoneNumber(options.phoneNumber) : null;
+    this.customCode = options.customCode ? String(options.customCode).trim() : null;
     this.lockFile = path.join(this.directory, '.session.lock');
     this._isLocked = false;
     this.authState = null;

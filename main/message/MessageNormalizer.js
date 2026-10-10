@@ -213,11 +213,15 @@ export class MessageNormalizer {
       let interactiveText = '';
       if (content.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
         try {
-          const parsed = JSON.parse(content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
-          interactiveText = parsed.id || parsed.selected_id || parsed.copy_code || content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson;
+          const params = content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson;
+          const parsed = typeof params === 'string' ? JSON.parse(params) : params;
+          interactiveText = parsed.id || parsed.selected_id || parsed.selectedRowId || parsed.copy_code || parsed.command || parsed.text || '';
         } catch {
-          interactiveText = content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson;
+          interactiveText = String(content.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson || '');
         }
+      }
+      if (!interactiveText && content.interactiveResponseMessage?.body?.text) {
+        interactiveText = content.interactiveResponseMessage.body.text;
       }
       text = content.buttonsResponseMessage?.selectedButtonId ||
              content.buttonsResponseMessage?.selectedDisplayText ||

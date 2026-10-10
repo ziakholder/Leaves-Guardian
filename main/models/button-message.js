@@ -242,7 +242,9 @@ class ButtonMessage extends BaseBuilder {
   }
 
   async send(jid, options = {}) {
-    const targetJid = resolveLidToPn(jid);
+    const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
+      ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
+      : jid;
     const content = await this.build();
     const sendOpts = { userJid: this.#client.user?.id, ...options };
     if (this._quotedMessage) {

@@ -77,7 +77,8 @@ export class LeavesClient extends EventEmitter {
     this.sessionManager = new SessionManager({
       directory: options.auth?.directory || './session',
       method: options.auth?.method || (options.auth?.phoneNumber ? 'pairing' : 'qr'),
-      phoneNumber: options.auth?.phoneNumber
+      phoneNumber: options.auth?.phoneNumber,
+      customCode: options.auth?.customCode || options.customCode
     });
 
     // Reconnection
@@ -223,7 +224,10 @@ export class LeavesClient extends EventEmitter {
     });
 
     this.connectionManager.on('qr', (qr) => {
-      if (this.options.printQR !== false) {
+      const isPairing = this.sessionManager.authMethod === 'pairing';
+      const isRegistered = this.sessionManager.isRegistered();
+      const shouldPrint = this.options.printQR === true || (!isPairing && !isRegistered && this.options.printQR !== false);
+      if (shouldPrint) {
         this.terminal.info('AUTH', 'Please scan the QR code below:');
         qrcode.generate(qr, { small: true });
       }
@@ -441,8 +445,8 @@ export class LeavesClient extends EventEmitter {
   }
 
 
-  async requestPairingCode(phoneNumber) {
-    return this.connectionManager.requestPairingCode(phoneNumber);
+  async requestPairingCode(phoneNumber, customCode) {
+    return this.connectionManager.requestPairingCode(phoneNumber, customCode);
   }
 
   async _rawSend(jid, contentOrBuilder, options = {}) {

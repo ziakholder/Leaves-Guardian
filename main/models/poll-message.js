@@ -73,8 +73,9 @@ class PollMessage extends BaseBuilder {
   }
 
   async send(jid, options = {}) {
-    const { default: resolveLidToPn } = await import('../helpers/lid-resolver.js');
-    const targetJid = resolveLidToPn(jid);
+    const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
+      ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
+      : jid;
     const message = this.build();
     const sendOptions = { ...options };
     if (this._quotedMessage) {

@@ -88,7 +88,7 @@ export class ConnectionManager extends EventEmitter {
         creds: auth.state.creds,
         keys: makeCacheableSignalKeyStore(auth.state.keys, logger)
       },
-      printQRInTerminal: !usePairing,
+      printQRInTerminal: false,
       logger,
       browser: this.browser,
       markOnlineOnConnect: this.markOnlineOnConnect,
@@ -181,7 +181,7 @@ export class ConnectionManager extends EventEmitter {
     return this.sock;
   }
 
-  async requestPairingCode(phoneNumber) {
+  async requestPairingCode(phoneNumber, customCode) {
     if (!this.sock) {
       throw new ConnectionError('Cannot request pairing code before socket is created');
     }
@@ -199,9 +199,14 @@ export class ConnectionManager extends EventEmitter {
     }
     this._pairingRequested = true;
 
+    const targetCustomCode = customCode || this.sessionManager.customCode || undefined;
+    const validCustomCode = (typeof targetCustomCode === 'string' && targetCustomCode.trim().length === 8)
+      ? targetCustomCode.trim().toUpperCase()
+      : undefined;
+
     try {
-      const code = await this.sock.requestPairingCode(cleanNumber);
-      this.emit('pairing_code', { phoneNumber: cleanNumber, code });
+      const code = await this.sock.requestPairingCode(cleanNumber, validCustomCode);
+      this.emit('pairing_code', { phoneNumber: cleanNumber, code, custom: Boolean(validCustomCode) });
       return code;
     } catch (err) {
       this._pairingRequested = false;
@@ -265,11 +270,13 @@ export class ConnectionManager extends EventEmitter {
   }
 
   async _handleAutoReconnect(reason) {
-    if (NON_RECOVERABLE_REASONS.has(reason)) {
+    if (Object.values(NON_RECOVERABLE_REASONS).includes(reason)) {
       return;
     }
 
-    const decision = this.reconnectManager.shouldReconnect(reason);
+    const decision = typeof this.reconnectManager?.shouldReconnect === 'function'
+      ? this.reconnectManager.shouldReconnect(reason)
+      : { shouldReconnect: false, attempts: 0, delayMs: 0 };
     if (!decision.shouldReconnect) {
       this.emit('reconnect_failed', { reason, attempts: decision.attempts });
       return;

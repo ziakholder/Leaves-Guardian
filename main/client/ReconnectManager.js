@@ -1,17 +1,25 @@
-﻿import { EventEmitter } from 'events';
+import { EventEmitter } from 'events';
 
 export const RECONNECT_REASONS = Object.freeze({
   NETWORK_ERROR: 'NETWORK_ERROR',
+  NETWORK_LOST: 'NETWORK_LOST',
   SERVER_UNAVAILABLE: 'SERVER_UNAVAILABLE',
   CONNECTION_CLOSED: 'CONNECTION_CLOSED',
+  CONNECTION_REPLACED: 'CONNECTION_REPLACED',
   CONFLICT: 'CONFLICT',
-  UNKNOWN_TRANSIENT: 'UNKNOWN_TRANSIENT'
+  TIMED_OUT: 'TIMED_OUT',
+  RESTART_REQUIRED: 'RESTART_REQUIRED',
+  SESSION_CORRUPTED: 'SESSION_CORRUPTED',
+  MULTIDEVICE_MISMATCH: 'MULTIDEVICE_MISMATCH',
+  UNKNOWN_TRANSIENT: 'UNKNOWN_TRANSIENT',
+  LOGGED_OUT: 'LOGGED_OUT'
 });
 
 export const NON_RECOVERABLE_REASONS = Object.freeze({
   LOGGED_OUT: 'LOGGED_OUT',
   SHUTDOWN: 'SHUTDOWN',
-  AUTH_FAILURE: 'AUTH_FAILURE'
+  AUTH_FAILURE: 'AUTH_FAILURE',
+  SESSION_CORRUPTED: 'SESSION_CORRUPTED'
 });
 
 /**
@@ -37,6 +45,18 @@ export class ReconnectManager extends EventEmitter {
     if (this.attempts >= this.maxAttempts) return false;
     if (Object.values(NON_RECOVERABLE_REASONS).includes(reason)) return false;
     return true;
+  }
+
+  shouldReconnect(reason) {
+    if (!this.isRecoverable(reason)) {
+      return { shouldReconnect: false, attempts: this.attempts, delayMs: 0 };
+    }
+    if (reason === RECONNECT_REASONS.RESTART_REQUIRED) {
+      return { shouldReconnect: true, attempts: this.attempts, delayMs: 500 };
+    }
+    this.attempts++;
+    const delayMs = this.calculateDelay(this.attempts);
+    return { shouldReconnect: true, attempts: this.attempts, delayMs };
   }
 
   hasPendingReconnect() {

@@ -1,7 +1,6 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
-import { resolveLidToPn } from '../helpers/lid-resolver.js';
 
 /**
  * ProductMessage — Builder kartu produk interaktif untuk WhatsApp.
@@ -184,7 +183,9 @@ class ProductMessage extends BaseBuilder {
   }
 
   async send(jid, options = {}) {
-    const targetJid = resolveLidToPn(jid);
+    const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
+      ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
+      : jid;
     const content = await this.build();
     const payload = content.viewOnceMessage ? content : content;
     const msg = generateWAMessageFromContent(targetJid, payload, { userJid: this.#client.user?.id, ...options });

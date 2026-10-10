@@ -74,15 +74,29 @@ Menangani reconnect otomatis dengan exponential backoff dan jitter untuk error j
 - `OPEN` (`connection_open`): Socket koneksi WhatsApp sudah terbuka.
 - `READY` (`ready`): Seluruh inisialisasi wrapper selesai dan aman untuk memproses pesan.
 
-### 3. First-Class Pairing Code
-Mendukung login tanpa scan QR menggunakan nomor telepon:
+### 3. First-Class Pairing Code & Custom Code Support
+Mendukung login tanpa scan QR menggunakan nomor telepon resmi maupun **Custom Pairing Code (8 karakter)**:
+
 ```javascript
+// Opsi A: Menggunakan Custom Pairing Code (Tepat 8 karakter)
 const client = new LeavesClient({
-  auth: { method: 'pairing', phoneNumber: '628123456789' }
+  auth: {
+    method: 'pairing',
+    phoneNumber: '628123456789',
+    customCode: 'LEAVES01' // Kode pairing custom 8 karakter
+  }
 });
 
-client.on('pairing_code', ({ code, phoneNumber }) => {
-  console.log(`Kode Pairing: ${code}`);
+// Opsi B: Menggunakan Kode Pairing Acak Otomatis
+const clientAuto = new LeavesClient({
+  auth: {
+    method: 'pairing',
+    phoneNumber: '628123456789'
+  }
+});
+
+client.on('pairing_code', ({ code, phoneNumber, custom }) => {
+  console.log(`Kode Pairing ${custom ? '(Custom)' : '(Auto)'}: ${code}`);
 });
 ```
 
