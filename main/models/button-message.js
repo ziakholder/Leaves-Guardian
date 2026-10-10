@@ -1,4 +1,5 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
+import crypto from 'crypto';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
 import { resolveLidToPn } from '../helpers/lid-resolver.js';
@@ -274,6 +275,7 @@ class ButtonMessage extends BaseBuilder {
           messageContextInfo: {
             deviceListMetadata: {},
             deviceListMetadataVersion: 2,
+            messageSecret: crypto.randomBytes(32),
           },
           ...content,
         },
@@ -281,30 +283,10 @@ class ButtonMessage extends BaseBuilder {
     };
 
     const msg = generateWAMessageFromContent(targetJid, wrappedContent, sendOpts);
-    const additionalNodes = [
-      {
-        tag: 'biz',
-        attrs: {},
-        content: [
-          {
-            tag: 'interactive',
-            attrs: { type: 'native_flow', v: '1' },
-            content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
-          },
-        ],
-      },
-    ];
 
-    try {
-      await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
-        messageId: msg.key.id,
-        additionalNodes,
-      });
-    } catch (relayErr) {
-      await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
-        messageId: msg.key.id,
-      });
-    }
+    await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
+      messageId: msg.key.id,
+    });
 
     return msg;
   }

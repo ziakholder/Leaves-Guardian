@@ -1,4 +1,5 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
+import crypto from 'crypto';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError, DuplicateIdError } from '../errors.js';
 
@@ -182,6 +183,7 @@ class CarouselMessage extends BaseBuilder {
           messageContextInfo: {
             deviceListMetadata: {},
             deviceListMetadataVersion: 2,
+            messageSecret: crypto.randomBytes(32),
           },
           ...content,
         },
@@ -194,23 +196,8 @@ class CarouselMessage extends BaseBuilder {
       { userJid: this.#client.user?.id, ...options }
     );
 
-    const additionalNodes = [
-      {
-        tag: 'biz',
-        attrs: {},
-        content: [
-          {
-            tag: 'interactive',
-            attrs: { type: 'native_flow', v: '1' },
-            content: [{ tag: 'native_flow', attrs: { v: '9', name: 'mixed' } }],
-          },
-        ],
-      },
-    ];
-
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
       messageId: msg.key.id,
-      additionalNodes,
     });
 
     return msg;
