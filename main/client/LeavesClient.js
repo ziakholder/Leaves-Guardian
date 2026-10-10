@@ -495,6 +495,24 @@ export class LeavesClient extends EventEmitter {
     return this.sendMessage(jid, { text }, options);
   }
 
+  get user() {
+    const sock = this.getRawSocket();
+    return sock?.user || sock?.authState?.creds?.me || null;
+  }
+
+  async relayMessage(jid, message, options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) {
+      throw new ConnectionError('Socket not available for relayMessage');
+    }
+    return sock.relayMessage(jid, message, options);
+  }
+
+  get waUploadToServer() {
+    const sock = this.getRawSocket();
+    return sock?.waUploadToServer;
+  }
+
   async deleteMessage(key) {
     if (!this.isReady()) {
       throw new ConnectionError(`Cannot delete message while client is not READY (current: ${this.state})`);
