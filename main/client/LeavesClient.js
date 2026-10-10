@@ -818,11 +818,16 @@ export class LeavesClient extends EventEmitter {
   }
 
   getUser() {
+    if (this._customUser !== undefined) return this._customUser;
     return this.connectionManager.getUser();
   }
 
   get user() {
     return this.getUser();
+  }
+
+  set user(val) {
+    this._customUser = val;
   }
 
   get waUploadToServer() {

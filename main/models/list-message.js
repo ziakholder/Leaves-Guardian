@@ -220,10 +220,16 @@ class ListMessage extends BaseBuilder {
       },
     ];
 
-    await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
-      messageId: msg.key.id,
-      additionalNodes,
-    });
+    try {
+      await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
+        messageId: msg.key.id,
+        additionalNodes,
+      });
+    } catch (relayErr) {
+      await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
+        messageId: msg.key.id,
+      });
+    }
 
     return msg;
   }
