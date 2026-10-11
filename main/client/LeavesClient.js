@@ -8,7 +8,7 @@ import { ReconnectManager } from './ReconnectManager.js';
 import { EventManager } from './EventManager.js';
 import { ConnectionManager } from './ConnectionManager.js';
 import { MessageNormalizer } from '../message/MessageNormalizer.js';
-import { StateError, ConnectionError, CollectorError, CollectorTimeoutError, PromptError, PaginatorError, LeavesValidationError, EphemeralError, AutoDeleteError, SmartStoreError } from '../errors/LeavesError.js';
+import { StateError, ConnectionError, CollectorError, CollectorTimeoutError, PromptError, PaginatorError, LeavesValidationError, EphemeralError, AutoDeleteError, SmartStoreError, GroupCacheError } from '../errors/LeavesError.js';
 import { MessageCollector, COLLECTOR_END_REASONS } from '../collector/MessageCollector.js';
 import { Prompt, PROMPT_STATES } from '../prompt/Prompt.js';
 import { Paginator, PAGINATOR_STATES, PAGINATOR_ACTIONS } from '../paginator/Paginator.js';
@@ -27,6 +27,7 @@ import { IngressDeduplicator } from '../dedup/IngressDeduplicator.js';
 import { TerminalManager } from '../terminal/TerminalManager.js';
 import { PresentationAdapter } from '../terminal/PresentationAdapter.js';
 import { resolveLidToPn } from '../helpers/lid-resolver.js';
+import { GroupCache } from '../group/GroupCache.js';
 
 
 export const CLIENT_STATES = Object.freeze({
@@ -114,6 +115,18 @@ export class LeavesClient extends EventEmitter {
     // Lightweight State & KV Store (Layer 3.1)
     this.store = new SmartStore(options.store || {});
 
+    // High-Performance Group Metadata Cache (Layer 3.7)
+    const groupCacheOptions = { ...(options.groupCache || options.groups || {}) };
+    this.groupCache = new GroupCache(groupCacheOptions, () => this.getRawSocket());
+    this.groups = this.groupCache;
+
+    this.eventManager.on('groups.update', (updates) => {
+      this.groupCache.handleGroupsUpdate(updates);
+    });
+    this.eventManager.on('group-participants.update', (update) => {
+      this.groupCache.handleParticipantsUpdate(update);
+    });
+
     // Disk-level Session & Auth Integrity Recovery (Layer 3.2)
     this.recovery = new SessionRecovery({
       sessionDirectory: this.sessionManager.directory,
@@ -172,6 +185,14 @@ export class LeavesClient extends EventEmitter {
       this.memoryGuard.registerMitigationHook('messageStore.evictMemory', async () => {
         const evictedMessageCount = this.messageStore.evictMemory();
         return { evictedMessageCount };
+      });
+    }
+
+    if (this.groupCache && typeof this.groupCache.clear === 'function') {
+      this.memoryGuard.registerMitigationHook('groupCache.clear', async () => {
+        const clearedCount = this.groupCache.size;
+        this.groupCache.clear();
+        return { clearedCount };
       });
     }
 
@@ -735,6 +756,13 @@ export class LeavesClient extends EventEmitter {
       } catch (_) {}
     }
 
+    // Stop and clear GroupCache gracefully
+    if (this.groupCache) {
+      try {
+        this.groupCache.shutdown();
+      } catch (_) {}
+    }
+
     // Stop SessionRecovery gracefully
     if (this.recovery) {
       try {
@@ -869,6 +897,66 @@ export class LeavesClient extends EventEmitter {
 
   isReady() {
     return this.state === CLIENT_STATES.READY;
+  }
+
+  /**
+   * Retrieves group metadata with caching and singleflight request coalescing.
+   * @param {string} jid Group JID (@g.us)
+   * @param {boolean} [forceRefresh=false]
+   * @returns {Promise<object>} GroupMetadata
+   */
+  async groupMetadata(jid, forceRefresh = false) {
+    return this.groupCache.getMetadata(jid, forceRefresh);
+  }
+
+  /**
+   * Checks whether a specific user is an admin or superadmin in a group.
+   * @param {string} groupJid Group JID (@g.us)
+   * @param {string} userJid User JID or phone number
+   * @returns {Promise<boolean>}
+   */
+  async isGroupAdmin(groupJid, userJid) {
+    return this.groupCache.isGroupAdmin(groupJid, userJid);
+  }
+
+  /**
+   * Checks whether the current bot is an admin in a group.
+   * @param {string} groupJid Group JID (@g.us)
+   * @param {string} [botJid=null] Optional override JID for the bot
+   * @returns {Promise<boolean>}
+   */
+  async isBotAdmin(groupJid, botJid = null) {
+    const resolvedBotJid = botJid || this.user?.id || this.user?.jid;
+    if (!resolvedBotJid) {
+      return false;
+    }
+    return this.groupCache.isBotAdmin(groupJid, resolvedBotJid);
+  }
+
+  /**
+   * Returns list of admin JIDs in a group.
+   * @param {string} groupJid Group JID (@g.us)
+   * @returns {Promise<string[]>}
+   */
+  async getGroupAdmins(groupJid) {
+    return this.groupCache.getGroupAdmins(groupJid);
+  }
+
+  /**
+   * Returns list of all participant JIDs in a group.
+   * @param {string} groupJid Group JID (@g.us)
+   * @returns {Promise<string[]>}
+   */
+  async getGroupParticipants(groupJid) {
+    return this.groupCache.getGroupParticipants(groupJid);
+  }
+
+  /**
+   * Returns a snapshot of all active cached group metadata.
+   * @returns {Record<string, object>}
+   */
+  getAllCachedGroupMetadata() {
+    return this.groupCache.getAllCachedMetadata();
   }
 }
 

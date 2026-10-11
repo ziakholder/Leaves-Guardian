@@ -23,6 +23,8 @@ export { SessionRecovery, SESSION_RECOVERY_CODES, SESSION_STATUS, isEligibleAuth
 export { HealthMonitor, HEALTH_STATUS, PROBE_STATUS, MONITOR_STATE, HEALTH_ERROR_CODES, DEFAULT_THRESHOLDS, validateThresholds } from './health/HealthMonitor.js';
 export { Watchdog, WATCHDOG_STATE, WATCHDOG_ERROR_CODES, DEFAULT_WATCHDOG_OPTIONS, validateWatchdogOptions } from './watchdog/Watchdog.js';
 export { MemoryGuard, MEMORY_GUARD_STATE, MEMORY_GUARD_LEVEL, MEMORY_ERROR_CODES, DEFAULT_MEMORY_GUARD_OPTIONS, DEFAULT_MEMORY_GUARD_STATUS, validateMemoryGuardOptions } from './memory/MemoryGuard.js';
+export { GroupCache } from './group/GroupCache.js';
+export { DEFAULT_GROUP_CACHE_OPTIONS, GROUP_CACHE_ERROR_CODES, validateGroupCacheOptions } from './group/GroupCacheConstants.js';
 
 // Traffic Control Layer (Layer 5.1)
 export { TrafficController, TRAFFIC_STATE, TRAFFIC_PRIORITY, TRAFFIC_TASK_STATE, TRAFFIC_ERROR_CODES, DEFAULT_TRAFFIC_OPTIONS, validateTrafficOptions } from './traffic/TrafficController.js';

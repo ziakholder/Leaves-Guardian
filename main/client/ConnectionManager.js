@@ -302,4 +302,8 @@ export class ConnectionManager extends EventEmitter {
     }
     this.isConnected = false;
   }
+
+  async close() {
+    return this.closeSocket();
+  }
 }

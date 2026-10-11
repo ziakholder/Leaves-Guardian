@@ -264,6 +264,13 @@ export class MessageStoreError extends LeavesError {
   }
 }
 
+export class GroupCacheError extends LeavesError {
+  constructor(message, code = 'GROUP_CACHE_ERROR', meta = {}) {
+    super(message, code, meta);
+    this.name = 'GroupCacheError';
+  }
+}
+
 
 
 

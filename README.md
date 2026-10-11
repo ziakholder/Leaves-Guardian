@@ -255,6 +255,46 @@ client.messageStore.evictMemory();
 
 ---
 
+## 👥 GroupCache: High-Performance Group Metadata Cache (Layer 3.7)
+
+Menyelesaikan masalah klasik WhatsApp bot saat menangani grup: pemanggilan `sock.groupMetadata()` berulang kali yang memicu rate limit WhatsApp (IQ 429), latensi jaringan tinggi, dan kode pengecekan admin yang berbelit-belit.
+
+Leaves Guardian menyediakan **GroupCache** terintegrasi:
+* **Singleflight Request Coalescing:** Permintaan metadata bersamaan untuk grup yang sama digabungkan menjadi satu request jaringan.
+* **Sinkronisasi Real-Time:** Otomatis memperbarui cache lokal saat ada perubahan peserta (tambah, keluar, promote, demote) melalui event socket tanpa request ulang ke WhatsApp.
+* **Helper Admin & Peserta Siap Pakai:** Cek status admin bot atau user dengan penanganan nomor dan format JID otomatis.
+* **Integrasi MemoryGuard:** Cache otomatis dikosongkan ketika sistem mendeteksi lonjakan memori.
+
+```javascript
+import { LeavesClient } from 'leaves-guardian';
+
+const client = new LeavesClient({
+  groupCache: {
+    ttlMs: 5 * 60 * 1000, // Durasi simpan cache (default: 5 menit)
+    maxGroups: 250        // Maksimal grup yang disimpan di memori
+  }
+});
+
+client.on('message', async (msg) => {
+  if (!msg.chat.isGroup) return;
+
+  // 1. Ambil metadata grup dengan cache otomatis (cepat & anti rate limit)
+  const metadata = await client.groupMetadata(msg.chat.id);
+
+  // 2. Cek apakah pengirim pesan adalah admin grup
+  const isSenderAdmin = await client.isGroupAdmin(msg.chat.id, msg.sender.id);
+
+  // 3. Cek apakah bot sendiri adalah admin grup
+  const isBotAdmin = await client.isBotAdmin(msg.chat.id);
+
+  if (msg.text === '.kick' && isSenderAdmin && isBotAdmin) {
+    // Jalankan aksi grup dengan aman
+  }
+});
+```
+
+---
+
 ## 🧪 Testing
 
 Jalankan automated test suite bawaan:

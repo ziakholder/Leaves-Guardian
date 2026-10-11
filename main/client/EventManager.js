@@ -1,4 +1,4 @@
-﻿import { EventEmitter } from 'events';
+import { EventEmitter } from 'events';
 
 export class EventManager extends EventEmitter {
   constructor() {
@@ -29,6 +29,20 @@ export class EventManager extends EventEmitter {
       this.emit('messages.upsert', upsert);
       if (typeof handlers.onMessagesUpsert === 'function') {
         handlers.onMessagesUpsert(upsert);
+      }
+    });
+
+    sock.ev.on('groups.update', (updates) => {
+      this.emit('groups.update', updates);
+      if (typeof handlers.onGroupsUpdate === 'function') {
+        handlers.onGroupsUpdate(updates);
+      }
+    });
+
+    sock.ev.on('group-participants.update', (update) => {
+      this.emit('group-participants.update', update);
+      if (typeof handlers.onGroupParticipantsUpdate === 'function') {
+        handlers.onGroupParticipantsUpdate(update);
       }
     });
   }
