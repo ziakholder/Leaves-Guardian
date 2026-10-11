@@ -17,6 +17,8 @@ export * from './errors/LeavesError.js';
 
 // Reliability & Runtime Layer (Layer 3)
 export { SmartStore, SmartStoreNamespace, CURRENT_STORE_VERSION, validateKey, validateNamespace, validateJSONValue, validateAndCalculateExpiry } from './smartstore/SmartStore.js';
+export { MessageStore } from './store/MessageStore.js';
+export { MESSAGE_STORE_MODE, MESSAGE_STORE_ERROR_CODES, DEFAULT_MESSAGE_STORE_OPTIONS, validateMessageStoreOptions } from './store/MessageStoreConstants.js';
 export { SessionRecovery, SESSION_RECOVERY_CODES, SESSION_STATUS, isEligibleAuthFile } from './recovery/SessionRecovery.js';
 export { HealthMonitor, HEALTH_STATUS, PROBE_STATUS, MONITOR_STATE, HEALTH_ERROR_CODES, DEFAULT_THRESHOLDS, validateThresholds } from './health/HealthMonitor.js';
 export { Watchdog, WATCHDOG_STATE, WATCHDOG_ERROR_CODES, DEFAULT_WATCHDOG_OPTIONS, validateWatchdogOptions } from './watchdog/Watchdog.js';

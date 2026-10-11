@@ -15,6 +15,7 @@ import { Paginator, PAGINATOR_STATES, PAGINATOR_ACTIONS } from '../paginator/Pag
 import { EphemeralMessage, EPHEMERAL_DURATIONS, DEFAULT_EPHEMERAL_DURATION } from '../ephemeral/EphemeralMessage.js';
 import { AutoDeleteManager, AUTODELETE_STATES, validateDelay } from '../autodelete/AutoDeleteManager.js';
 import { SmartStore } from '../smartstore/SmartStore.js';
+import { MessageStore } from '../store/MessageStore.js';
 import { SessionRecovery } from '../recovery/SessionRecovery.js';
 import { HealthMonitor } from '../health/HealthMonitor.js';
 import { Watchdog } from '../watchdog/Watchdog.js';
@@ -90,6 +91,9 @@ export class LeavesClient extends EventEmitter {
       jitter: options.reconnect?.jitter ?? 1000
     });
 
+    // Tiered & Persistent Message Store (Layer 3.6 - Anti Memory Leak)
+    this.messageStore = options.messageStore || new MessageStore(options.messageStoreOptions || options.messages || {});
+
     // Event & Socket Connection
     this.eventManager = new EventManager();
     this.connectionManager = new ConnectionManager({
@@ -100,7 +104,8 @@ export class LeavesClient extends EventEmitter {
       eventManager: this.eventManager,
       socketFactory: options.socketFactory,
       browser: options.browser || Browsers.macOS('Safari'),
-      markOnlineOnConnect: options.markOnlineOnConnect !== false
+      markOnlineOnConnect: options.markOnlineOnConnect !== false,
+      messageStore: this.messageStore
     });
 
     // Auto-Delete Lifecycle Manager
@@ -160,6 +165,13 @@ export class LeavesClient extends EventEmitter {
       this.memoryGuard.registerMitigationHook('smartStore.sweep', async () => {
         const evictedCount = this.store.sweep();
         return { evictedCount };
+      });
+    }
+
+    if (this.messageStore && typeof this.messageStore.evictMemory === 'function') {
+      this.memoryGuard.registerMitigationHook('messageStore.evictMemory', async () => {
+        const evictedMessageCount = this.messageStore.evictMemory();
+        return { evictedMessageCount };
       });
     }
 
@@ -495,6 +507,10 @@ export class LeavesClient extends EventEmitter {
     return this.sendMessage(jid, { text }, options);
   }
 
+  async getMessage(key) {
+    return this.messageStore.getMessage(key);
+  }
+
   get user() {
     const sock = this.getRawSocket();
     return sock?.user || sock?.authState?.creds?.me || null;
@@ -709,6 +725,13 @@ export class LeavesClient extends EventEmitter {
     if (this.store) {
       try {
         await this.store.stop();
+      } catch (_) {}
+    }
+
+    // Stop and flush MessageStore gracefully
+    if (this.messageStore) {
+      try {
+        await this.messageStore.shutdown();
       } catch (_) {}
     }
 

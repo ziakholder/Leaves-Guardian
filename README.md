@@ -224,6 +224,37 @@ client.on('message', async (msg) => {
 
 ---
 
+## 💾 MessageStore: Anti Memory Leak & Tiered Storage (Layer 3.6)
+
+Mengatasi masalah klasik bot WhatsApp Baileys di mana pesan disimpan di memori RAM tanpa batas (`makeInMemoryStore`), yang menyebabkan kebocoran memori (OOM crash) pada runtime bot 24/7.
+
+Leaves Guardian menyediakan **MessageStore** dengan arsitektur penyimpanan bertingkat:
+* **L1 (RAM Hot Cache):** LRU cache ringan (default: 100 pesan teraktif, hanya memakai ~2-5 MB RAM).
+* **L2 (Disk Cold Storage):** Pesan yang tergeser dari RAM disimpan ke disk secara asynchronous (`./data/messages`).
+* **Handshake E2EE:** Fungsi `getMessage(key)` otomatis mencari di RAM, dan jika miss, membaca dari disk sehingga retry pesan WhatsApp tetap berhasil tanpa membebani RAM.
+
+```javascript
+import { LeavesClient, MESSAGE_STORE_MODE } from 'leaves-guardian';
+
+const client = new LeavesClient({
+  messages: {
+    mode: MESSAGE_STORE_MODE.HYBRID, // 'hybrid' (default), 'disk', 'memory', atau 'none'
+    directory: './data/messages',    // Folder penyimpanan disk
+    maxMemoryItems: 100,             // Batas pesan di RAM (anti-bloat)
+    retentionDays: 3,                // Bersihkan pesan lebih dari 3 hari otomatis
+    sanitizeBuffers: true            // Bersihkan buffer biner besar sebelum simpan
+  }
+});
+
+// Ambil pesan tersimpan (mendukung key Baileys)
+const msg = await client.getMessage({ remoteJid: '628123@s.whatsapp.net', id: 'MSG_ID' });
+
+// Kosongkan RAM secara manual saat memori tinggi (disk tetap aman)
+client.messageStore.evictMemory();
+```
+
+---
+
 ## 🧪 Testing
 
 Jalankan automated test suite bawaan:

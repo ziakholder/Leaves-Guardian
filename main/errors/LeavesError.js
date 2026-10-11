@@ -257,6 +257,13 @@ export class TerminalError extends LeavesError {
   }
 }
 
+export class MessageStoreError extends LeavesError {
+  constructor(message, code = 'MESSAGE_STORE_ERROR', meta = {}) {
+    super(message, code, meta);
+    this.name = 'MessageStoreError';
+  }
+}
+
 
 
 

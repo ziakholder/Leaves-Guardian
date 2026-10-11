@@ -4,6 +4,7 @@ import { Boom } from '@hapi/boom';
 import { ConnectionError, AuthenticationError } from '../errors/LeavesError.js';
 import { RECONNECT_REASONS, NON_RECOVERABLE_REASONS } from './ReconnectManager.js';
 import { normalizePhoneNumber } from './SessionManager.js';
+import { MessageStore } from '../store/MessageStore.js';
 
 class MemoryRetryCache {
   constructor(limit = 2000) {
@@ -49,16 +50,13 @@ export class ConnectionManager extends EventEmitter {
 
     // Retry & Message History Cache (Crucial for E2EE Signal Handshake & Multi-Device Delivery)
     this.msgRetryCounterCache = new MemoryRetryCache(3000);
-    this.rawMessageHistory = new Map();
+    this.messageStore = options.messageStore || new MessageStore(options.messageStoreOptions || {});
+    this.rawMessageHistory = this.messageStore;
   }
 
   storeMessage(keyStr, messageObj) {
     if (!keyStr || !messageObj) return;
-    this.rawMessageHistory.set(keyStr, messageObj);
-    if (this.rawMessageHistory.size > 2000) {
-      const first = this.rawMessageHistory.keys().next().value;
-      this.rawMessageHistory.delete(first);
-    }
+    this.messageStore.saveMessage(keyStr, messageObj).catch(() => {});
   }
 
   async createSocket() {
@@ -101,11 +99,7 @@ export class ConnectionManager extends EventEmitter {
       msgRetryCounterCache: this.msgRetryCounterCache,
       getMessage: async (key) => {
         if (!key) return undefined;
-        const msgKey = `${key.remoteJid}:${key.id}`;
-        const stored = this.rawMessageHistory.get(msgKey);
-        if (stored?.message) return stored.message;
-        if (stored) return stored;
-        return undefined;
+        return await this.messageStore.getMessage(key);
       },
       patchMessageBeforeSending: (message) => {
         const requiresPatch = Boolean(
