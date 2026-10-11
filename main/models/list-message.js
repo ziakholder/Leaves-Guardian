@@ -1,5 +1,6 @@
 import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysockets/baileys';
 import crypto from 'crypto';
+import fs from 'fs';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError, DuplicateIdError, ItemNotFoundError } from '../errors.js';
 import { resolveLidToPn } from '../helpers/lid-resolver.js';
@@ -126,9 +127,26 @@ class ListMessage extends BaseBuilder {
 
     let header = { hasMediaAttachment: false };
     if (this._media) {
+      let rawMedia = this._media;
+      if (typeof this._media === 'string' && fs.existsSync(this._media)) {
+        try {
+          rawMedia = fs.readFileSync(this._media);
+        } catch (_) {}
+      }
+      if (Buffer.isBuffer(rawMedia)) {
+        try {
+          const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+          const img = await loadImage(rawMedia);
+          const canvas = createCanvas(300, 170);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, 300, 170);
+          rawMedia = canvas.toBuffer('image/jpeg');
+        } catch (_) {}
+      }
+
       const mediaKey = this._mediaType;
       const mediaPayload = {
-        [mediaKey]: Buffer.isBuffer(this._media) ? this._media : { url: this._media },
+        [mediaKey]: Buffer.isBuffer(rawMedia) ? rawMedia : { url: rawMedia },
         ...this._mediaOptions,
       };
 
@@ -182,7 +200,11 @@ class ListMessage extends BaseBuilder {
       ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
       : jid;
     const content = await this.build();
-    const sendOpts = { userJid: this.#client.user?.id, ...options };
+    let userJid = null;
+    try {
+      userJid = this.#client?.user?.id || this.#client?.authState?.creds?.me?.id || null;
+    } catch (_) {}
+    const sendOpts = { ...(userJid ? { userJid } : {}), ...options };
     if (this._quotedMessage) {
       const cleanQuoted = { ...this._quotedMessage };
       if (cleanQuoted.key) {
@@ -207,10 +229,40 @@ class ListMessage extends BaseBuilder {
       },
     };
 
+    const isGroup = typeof targetJid === 'string' && targetJid.endsWith('@g.us');
+    const additionalNodes = [
+      {
+        tag: 'biz',
+        attrs: {},
+        content: [{
+          tag: 'interactive',
+          attrs: {
+            type: 'native_flow',
+            v: '1',
+          },
+          content: [{
+            tag: 'native_flow',
+            attrs: {
+              v: '9',
+              name: 'mixed',
+            },
+          }],
+        }],
+      },
+    ];
+
+    if (!isGroup) {
+      additionalNodes.push({
+        tag: 'bot',
+        attrs: { biz_bot: '1' },
+      });
+    }
+
     const msg = generateWAMessageFromContent(targetJid, wrappedContent, sendOpts);
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
       messageId: msg.key.id,
+      additionalNodes,
     });
 
     return msg;
