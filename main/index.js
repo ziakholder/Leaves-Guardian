@@ -92,5 +92,5 @@ export { default as resolveMedia } from './helpers/media-resolver.js';
 export { default as resolveLidToPn } from './helpers/lid-resolver.js';
 
 // Baileys Media & Content Primitives
-export { downloadMediaMessage, downloadContentFromMessage, getContentType, normalizeMessageContent } from '@whiskeysockets/baileys';
+export { downloadMediaMessage, downloadContentFromMessage, getContentType, normalizeMessageContent, generateWAMessageFromContent, generateWAMessage } from '@whiskeysockets/baileys';
 
