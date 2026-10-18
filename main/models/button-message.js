@@ -122,6 +122,29 @@ class ButtonMessage extends BaseBuilder {
     return this;
   }
 
+  /**
+   * Tambah tombol list dropdown (single_select) secara deklaratif dengan array sections.
+   * @param {string} title - Teks tombol dropdown (misal: "📋 Lihat Semua Menu")
+   * @param {Array<{title: string, highlight_label?: string, rows: Array<{title: string, description?: string, id: string, header?: string}>}>} sections
+   */
+  addDropdown(title, sections = []) {
+    this.addSelection(title);
+    for (const sec of sections) {
+      this.makeSection(sec.title || '', sec.highlight_label || '');
+      if (Array.isArray(sec.rows)) {
+        for (const row of sec.rows) {
+          this.makeRow(row.header || '', row.title || '', row.description || '', row.id || '');
+        }
+      }
+    }
+    return this;
+  }
+
+  /** Alias untuk addDropdown */
+  addList(title, sections = []) {
+    return this.addDropdown(title, sections);
+  }
+
   setBottomSheet(title, { inThreadButtonsLimit = 1, dividerIndices = [1, 2] } = {}) {
     this._params.bottom_sheet = {
       in_thread_buttons_limit: inThreadButtonsLimit,
