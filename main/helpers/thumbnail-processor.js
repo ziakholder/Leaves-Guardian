@@ -45,15 +45,14 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
   }
 
   const MAX_THUMB_BYTES = 30000;
-  let targetW = Number(width) > 0 ? Number(width) : 400;
-  let targetH = Number(height) > 0 ? Number(height) : 400;
-  let targetQuality = Math.min(Math.max(Number(quality) || 82, 1), 100);
+  let targetW = Number(width) > 0 ? Number(width) : 300;
+  let targetH = Number(height) > 0 ? Number(height) : 300;
+  let targetQuality = Math.min(Math.max(Number(quality) || 85, 1), 100);
 
-  // If user requested oversized dimensions that exceed WhatsApp's 32KB client threshold,
-  // cap initial dimensions to 420x420 for safety
-  if (targetW > 420 || targetH > 420) {
-    targetW = 420;
-    targetH = 420;
+  // WhatsApp mobile client strictly discards inline thumbnails exceeding 300x300
+  if (targetW > 300 || targetH > 300) {
+    targetW = 300;
+    targetH = 300;
   }
 
   // Engine 1: sharp (Lanczos3 kernel + smart sharpen + MozJPEG with adaptive byte-budget)
@@ -86,14 +85,12 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
         return output;
       }
 
-      if (curQ > 70) {
-        curQ -= 4;
-      } else if (curW > 300) {
-        curW -= 40;
-        curH -= 40;
-        curQ = 80;
-      } else if (curQ > 55) {
+      if (curQ > 65) {
         curQ -= 5;
+      } else if (curW > 250) {
+        curW = 250;
+        curH = 250;
+        curQ = 80;
       } else {
         break;
       }
@@ -106,8 +103,8 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
   try {
     const { createCanvas, loadImage } = await import('@napi-rs/canvas');
     const img = await loadImage(buffer);
-    const canvasW = Math.min(targetW, 400);
-    const canvasH = Math.min(targetH, 400);
+    const canvasW = Math.min(targetW, 300);
+    const canvasH = Math.min(targetH, 300);
     const canvas = createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
