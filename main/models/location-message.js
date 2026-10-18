@@ -24,9 +24,9 @@ class LocationMessage extends ButtonMessage {
       thumbnail: null,
       latitude: 0,
       longitude: 0,
-      thumbWidth: 300,
-      thumbHeight: 300,
-      thumbQuality: 85,
+      thumbWidth: 400,
+      thumbHeight: 400,
+      thumbQuality: 82,
     };
   }
 

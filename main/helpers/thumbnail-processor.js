@@ -45,18 +45,18 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
   }
 
   const MAX_THUMB_BYTES = 30000;
-  let targetW = Number(width) > 0 ? Number(width) : 300;
-  let targetH = Number(height) > 0 ? Number(height) : 300;
-  let targetQuality = Math.min(Math.max(Number(quality) || 85, 1), 100);
+  let targetW = Number(width) > 0 ? Number(width) : 400;
+  let targetH = Number(height) > 0 ? Number(height) : 400;
+  let targetQuality = Math.min(Math.max(Number(quality) || 82, 1), 100);
 
   // If user requested oversized dimensions that exceed WhatsApp's 32KB client threshold,
-  // cap initial dimensions to 320x320 for safety
-  if (targetW > 320 || targetH > 320) {
-    targetW = 320;
-    targetH = 320;
+  // cap initial dimensions to 420x420 for safety
+  if (targetW > 420 || targetH > 420) {
+    targetW = 420;
+    targetH = 420;
   }
 
-  // Engine 1: sharp (Lanczos3 kernel + sharpen + chroma 4:4:4 + MozJPEG with adaptive byte-budget)
+  // Engine 1: sharp (Lanczos3 kernel + smart sharpen + MozJPEG with adaptive byte-budget)
   try {
     const sharpModule = await import('sharp');
     const sharp = sharpModule.default || sharpModule;
@@ -65,20 +65,20 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
     let curQ = targetQuality;
     let output = null;
 
-    for (let attempt = 0; attempt < 6; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       let pipeline = sharp(buffer).resize(curW, curH, {
         fit: 'cover',
         position: 'center',
         kernel: 'lanczos3',
       });
 
-      pipeline = pipeline.sharpen({ sigma: 1.0, m1: 0.5, m2: 0.5 });
+      pipeline = pipeline.sharpen();
 
       output = await pipeline
         .jpeg({
           quality: curQ,
           mozjpeg: true,
-          chromaSubsampling: '4:4:4',
+          chromaSubsampling: '4:2:0',
         })
         .toBuffer();
 
@@ -86,12 +86,14 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
         return output;
       }
 
-      if (curQ > 65) {
-        curQ -= 5;
-      } else if (curW > 250) {
-        curW = 250;
-        curH = 250;
+      if (curQ > 70) {
+        curQ -= 4;
+      } else if (curW > 300) {
+        curW -= 40;
+        curH -= 40;
         curQ = 80;
+      } else if (curQ > 55) {
+        curQ -= 5;
       } else {
         break;
       }
@@ -104,8 +106,8 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
   try {
     const { createCanvas, loadImage } = await import('@napi-rs/canvas');
     const img = await loadImage(buffer);
-    const canvasW = Math.min(targetW, 300);
-    const canvasH = Math.min(targetH, 300);
+    const canvasW = Math.min(targetW, 400);
+    const canvasH = Math.min(targetH, 400);
     const canvas = createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
