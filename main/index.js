@@ -72,6 +72,7 @@ export { AutoDeleteManager, AutoDeleteTask, AUTODELETE_STATES, normalizeMessageK
 // Message Builders (Layer 1 - 100% Backward Compatible)
 export { default as ListMessage } from './models/list-message.js';
 export { default as ButtonMessage } from './models/button-message.js';
+export { default as LocationMessage } from './models/location-message.js';
 export { default as RichMessage } from './models/rich-message.js';
 export { default as AIRichMessage } from './models/ai-rich-message.js';
 export { default as A2UIMessage } from './models/a2ui-message.js';

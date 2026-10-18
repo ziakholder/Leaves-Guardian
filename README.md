@@ -128,6 +128,7 @@ Leaves Guardian tetap 100% kompatibel dengan semua Message Builders interaktif m
 |---|---|
 | `TextMessage` | Teks dengan template variabel, reply, mention, dan adReply |
 | `ButtonMessage` | Tombol interaktif (Quick Reply, Copy Code, Open URL, Galaxy Flow, LTO Banner) |
+| `LocationMessage` | Kartu lokasi interaktif (Pin map 📍 + deskripsi + thumbnail kanan + tombol Native Flow) |
 | `ListMessage` | Menu pilihan single-select interaktif (Native Flow) dengan dukungan Media Header (`setImage`) |
 | `CarouselMessage` | Multi-kartu horizontal yang bisa digeser (Cards Carousel) |
 | `AIRichMessage` | Tampilan kartu Meta AI dengan Suggestion Chips dan Citations |
@@ -184,6 +185,26 @@ client.on('ready', async () => {
     .addReply('Buka Menu', '.menu')
     .addCopy('Salin Rekening DANA', '081234567890')
     .addUrl('Website Resmi', 'https://leavesguardian.enginelabs.my.id/')
+    .send('628123456789@s.whatsapp.net');
+});
+```
+
+### Contoh Penggunaan LocationMessage (Kartu Lokasi Interaktif & Avatar Thumbnail):
+
+```javascript
+import { LeavesClient, LocationMessage } from 'leaves-guardian';
+
+const client = new LeavesClient();
+
+client.on('ready', async () => {
+  const sock = client.getRawSocket();
+
+  await new LocationMessage(sock)
+    .setName('Hai アランズ~ 👋')
+    .setAddress('Tentu, Kak アランズ~. Aku akan mencarikan lirik lagu "Dinda" dari Masdo untuk Kakak. 🌸')
+    .setThumbnail('https://example.com/itsuki.jpg') // Gambar kotak di samping kanan kartu
+    .addReply('📋 Lihat Semua Menu', '.menu')
+    .addUrl('🌐 Website Kami', 'https://leavesguardian.enginelabs.my.id/')
     .send('628123456789@s.whatsapp.net');
 });
 ```

@@ -32,6 +32,7 @@ class ButtonMessage extends BaseBuilder {
     this._media = null;
     this._mediaType = null;
     this._mediaOptions = {};
+    this._locationHeader = null;
     this._currentSelectionIndex = -1;
     this._currentSectionIndex = -1;
     this._params = {};
@@ -201,6 +202,38 @@ class ButtonMessage extends BaseBuilder {
     return this;
   }
 
+  /**
+   * Set kartu header lokasi interaktif (seperti kartu map dengan pin dan thumbnail kanan).
+   * @param {Object|string} nameOrOpts - Objek konfigurasi atau string nama/judul lokasi
+   * @param {string} [address] - Deskripsi / alamat di bawah judul jika argumen pertama adalah string
+   * @param {string|Buffer} [thumbnail] - Gambar thumbnail persegi di sebelah kanan (URL, file path, atau Buffer)
+   */
+  setLocationHeader(nameOrOpts, address, thumbnail) {
+    let opts = {};
+    if (typeof nameOrOpts === 'object' && nameOrOpts !== null) {
+      opts = nameOrOpts;
+    } else {
+      opts = {
+        name: nameOrOpts,
+        address,
+        thumbnail,
+      };
+    }
+    this._locationHeader = {
+      name: opts.name || opts.title || '',
+      address: opts.address || opts.description || '',
+      thumbnail: opts.thumbnail || opts.image || null,
+      latitude: opts.latitude ?? opts.degreesLatitude ?? 0,
+      longitude: opts.longitude ?? opts.degreesLongitude ?? 0,
+    };
+    return this;
+  }
+
+  /** Alias untuk setLocationHeader */
+  setLocation(nameOrOpts, address, thumbnail) {
+    return this.setLocationHeader(nameOrOpts, address, thumbnail);
+  }
+
   async build() {
     const { title, body, footer } = this._renderAll();
 
@@ -209,7 +242,47 @@ class ButtonMessage extends BaseBuilder {
     }
 
     let header = { hasMediaAttachment: false };
-    if (this._media) {
+    if (this._locationHeader) {
+      let thumbBuffer = null;
+      if (this._locationHeader.thumbnail) {
+        try {
+          if (Buffer.isBuffer(this._locationHeader.thumbnail)) {
+            thumbBuffer = this._locationHeader.thumbnail;
+          } else if (typeof this._locationHeader.thumbnail === 'string') {
+            if (fs.existsSync(this._locationHeader.thumbnail)) {
+              thumbBuffer = fs.readFileSync(this._locationHeader.thumbnail);
+            } else if (/^https?:\/\//i.test(this._locationHeader.thumbnail)) {
+              const res = await fetch(this._locationHeader.thumbnail);
+              if (res.ok) {
+                thumbBuffer = Buffer.from(await res.arrayBuffer());
+              }
+            }
+          }
+          if (thumbBuffer && Buffer.isBuffer(thumbBuffer)) {
+            try {
+              const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+              const img = await loadImage(thumbBuffer);
+              const canvas = createCanvas(250, 250);
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, 250, 250);
+              thumbBuffer = canvas.toBuffer('image/jpeg');
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+
+      header = {
+        title: title || undefined,
+        hasMediaAttachment: true,
+        locationMessage: {
+          degreesLatitude: Number(this._locationHeader.latitude) || 0,
+          degreesLongitude: Number(this._locationHeader.longitude) || 0,
+          name: this._render(this._locationHeader.name),
+          address: this._render(this._locationHeader.address),
+          jpegThumbnail: thumbBuffer || undefined,
+        },
+      };
+    } else if (this._media) {
       let rawMedia = this._media;
       if (typeof this._media === 'string' && fs.existsSync(this._media)) {
         try {
