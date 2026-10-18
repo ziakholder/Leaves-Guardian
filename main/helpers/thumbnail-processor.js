@@ -18,7 +18,7 @@ import fs from 'node:fs';
  * @param {number} [options.quality=80] - JPEG compression quality (1-100)
  * @returns {Promise<Buffer|null>}
  */
-export async function processThumbnailBuffer(source, { width = 300, height = 300, quality = 80 } = {}) {
+export async function processThumbnailBuffer(source, { width = 500, height = 500, quality = 88 } = {}) {
   if (!source) return null;
 
   let buffer = null;
@@ -44,17 +44,28 @@ export async function processThumbnailBuffer(source, { width = 300, height = 300
     return null;
   }
 
-  const targetW = Number(width) > 0 ? Number(width) : 300;
-  const targetH = Number(height) > 0 ? Number(height) : 300;
-  const targetQuality = Math.min(Math.max(Number(quality) || 80, 1), 100);
+  const targetW = Number(width) > 0 ? Number(width) : 500;
+  const targetH = Number(height) > 0 ? Number(height) : 500;
+  const targetQuality = Math.min(Math.max(Number(quality) || 88, 1), 100);
 
-  // Engine 1: sharp (sharpest resampling with Lanczos3 + MozJPEG)
+  // Engine 1: sharp (Lanczos3 kernel + sharpen + chroma 4:4:4 + MozJPEG for Retina HD clarity)
   try {
     const sharpModule = await import('sharp');
     const sharp = sharpModule.default || sharpModule;
-    const output = await sharp(buffer)
-      .resize(targetW, targetH, { fit: 'cover', position: 'center' })
-      .jpeg({ quality: targetQuality, mozjpeg: true })
+    let pipeline = sharp(buffer).resize(targetW, targetH, {
+      fit: 'cover',
+      position: 'center',
+      kernel: 'lanczos3',
+    });
+
+    pipeline = pipeline.sharpen({ sigma: 1.0, m1: 0.5, m2: 0.5 });
+
+    const output = await pipeline
+      .jpeg({
+        quality: targetQuality,
+        mozjpeg: true,
+        chromaSubsampling: '4:4:4',
+      })
       .toBuffer();
     if (output && output.length > 0) return output;
   } catch (_) {}
