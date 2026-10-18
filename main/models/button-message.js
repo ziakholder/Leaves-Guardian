@@ -5,9 +5,10 @@ import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
 import { resolveLidToPn } from '../helpers/lid-resolver.js';
 import { buildInteractiveNodes } from '../helpers/stanza-nodes.js';
+import { processThumbnailBuffer } from '../helpers/thumbnail-processor.js';
 
 /**
- * ButtonMessage — wrapper custom di atas InteractiveMessage.NativeFlowMessage (Baileys).
+ * ButtonMessage - wrapper custom di atas InteractiveMessage.NativeFlowMessage (Baileys).
  * Mendukung berbagai macam tombol interaktif, banner promo (Limited Time Offer),
  * header media (Gambar/Video/Dokumen), adReply preview, dan forward channel.
  *
@@ -231,7 +232,7 @@ class ButtonMessage extends BaseBuilder {
    * @param {string} [address] - Deskripsi / alamat di bawah judul jika argumen pertama adalah string
    * @param {string|Buffer} [thumbnail] - Gambar thumbnail persegi di sebelah kanan (URL, file path, atau Buffer)
    */
-  setLocationHeader(nameOrOpts, address, thumbnail) {
+  setLocationHeader(nameOrOpts, address, thumbnail, extraOpts = {}) {
     let opts = {};
     if (typeof nameOrOpts === 'object' && nameOrOpts !== null) {
       opts = nameOrOpts;
@@ -240,6 +241,7 @@ class ButtonMessage extends BaseBuilder {
         name: nameOrOpts,
         address,
         thumbnail,
+        ...extraOpts,
       };
     }
     this._locationHeader = {
@@ -248,13 +250,16 @@ class ButtonMessage extends BaseBuilder {
       thumbnail: opts.thumbnail || opts.image || null,
       latitude: opts.latitude ?? opts.degreesLatitude ?? 0,
       longitude: opts.longitude ?? opts.degreesLongitude ?? 0,
+      thumbWidth: opts.width || opts.thumbWidth || 300,
+      thumbHeight: opts.height || opts.thumbHeight || 300,
+      thumbQuality: opts.quality || opts.thumbQuality || 80,
     };
     return this;
   }
 
   /** Alias untuk setLocationHeader */
-  setLocation(nameOrOpts, address, thumbnail) {
-    return this.setLocationHeader(nameOrOpts, address, thumbnail);
+  setLocation(nameOrOpts, address, thumbnail, extraOpts = {}) {
+    return this.setLocationHeader(nameOrOpts, address, thumbnail, extraOpts);
   }
 
   async build() {
@@ -266,33 +271,11 @@ class ButtonMessage extends BaseBuilder {
 
     let header = { hasMediaAttachment: false };
     if (this._locationHeader) {
-      let thumbBuffer = null;
-      if (this._locationHeader.thumbnail) {
-        try {
-          if (Buffer.isBuffer(this._locationHeader.thumbnail)) {
-            thumbBuffer = this._locationHeader.thumbnail;
-          } else if (typeof this._locationHeader.thumbnail === 'string') {
-            if (fs.existsSync(this._locationHeader.thumbnail)) {
-              thumbBuffer = fs.readFileSync(this._locationHeader.thumbnail);
-            } else if (/^https?:\/\//i.test(this._locationHeader.thumbnail)) {
-              const res = await fetch(this._locationHeader.thumbnail);
-              if (res.ok) {
-                thumbBuffer = Buffer.from(await res.arrayBuffer());
-              }
-            }
-          }
-          if (thumbBuffer && Buffer.isBuffer(thumbBuffer)) {
-            try {
-              const { createCanvas, loadImage } = await import('@napi-rs/canvas');
-              const img = await loadImage(thumbBuffer);
-              const canvas = createCanvas(250, 250);
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0, 250, 250);
-              thumbBuffer = canvas.toBuffer('image/jpeg');
-            } catch (_) {}
-          }
-        } catch (_) {}
-      }
+      const thumbBuffer = await processThumbnailBuffer(this._locationHeader.thumbnail, {
+        width: this._locationHeader.thumbWidth || 300,
+        height: this._locationHeader.thumbHeight || 300,
+        quality: this._locationHeader.thumbQuality || 80,
+      });
 
       header = {
         title: title || undefined,
@@ -316,9 +299,14 @@ class ButtonMessage extends BaseBuilder {
         try {
           const { createCanvas, loadImage } = await import('@napi-rs/canvas');
           const img = await loadImage(rawMedia);
-          const canvas = createCanvas(300, 170);
+          const targetW = 1280;
+          const targetH = 720;
+          const canvas = createCanvas(targetW, targetH);
           const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, 300, 170);
+          const scale = Math.max(targetW / img.width, targetH / img.height);
+          const x = (targetW - img.width * scale) / 2;
+          const y = (targetH - img.height * scale) / 2;
+          ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
           rawMedia = canvas.toBuffer('image/jpeg');
         } catch (_) {}
       }

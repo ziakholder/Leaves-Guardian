@@ -93,6 +93,7 @@ export { default as generateStatCard } from './helpers/stat-card.js';
 export { default as resolveMedia } from './helpers/media-resolver.js';
 export { default as resolveLidToPn } from './helpers/lid-resolver.js';
 export { default as buildInteractiveNodes } from './helpers/stanza-nodes.js';
+export { processThumbnailBuffer } from './helpers/thumbnail-processor.js';
 
 // Baileys Media & Content Primitives
 export { downloadMediaMessage, downloadContentFromMessage, getContentType, normalizeMessageContent, generateWAMessageFromContent, generateWAMessage, proto } from '@whiskeysockets/baileys';

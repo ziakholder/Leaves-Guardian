@@ -1,7 +1,7 @@
 import ButtonMessage from './button-message.js';
 
 /**
- * LocationMessage — Builder kartu lokasi interaktif WhatsApp (Native Flow).
+ * LocationMessage - Builder kartu lokasi interaktif WhatsApp (Native Flow).
  * Menghasilkan kartu bergaya Share Location dengan icon pin 📍, judul tebal,
  * deskripsi/alamat, thumbnail avatar/gambar di sebelah kanan, dan tombol interaktif di bawahnya.
  *
@@ -24,6 +24,9 @@ class LocationMessage extends ButtonMessage {
       thumbnail: null,
       latitude: 0,
       longitude: 0,
+      thumbWidth: 300,
+      thumbHeight: 300,
+      thumbQuality: 80,
     };
   }
 
@@ -45,9 +48,15 @@ class LocationMessage extends ButtonMessage {
 
   /**
    * Set thumbnail gambar persegi di sebelah kanan kartu (URL, Buffer, atau file path)
+   * Otomatis dikompresi ke 300x300 JPEG berkualitas tinggi via multi-engine (sharp -> canvas -> jimp)
+   * @param {string|Buffer} thumb - Sumber gambar
+   * @param {Object} [opts] - Opsi kustom (width, height, quality)
    */
-  setThumbnail(thumb) {
+  setThumbnail(thumb, opts = {}) {
     this._locationHeader.thumbnail = thumb;
+    if (opts.width) this._locationHeader.thumbWidth = opts.width;
+    if (opts.height) this._locationHeader.thumbHeight = opts.height;
+    if (opts.quality) this._locationHeader.thumbQuality = opts.quality;
     return this;
   }
 
