@@ -816,11 +816,23 @@ export class SessionRecovery extends EventEmitter {
         await this.#clearBackupsInternal();
       }
 
-      // Clean active eligible auth files so session directory is ready for fresh pairing
-      const eligibleFiles = this.#listEligibleAuthFiles(this.sessionDirectory);
-      for (const file of eligibleFiles) {
+      // Clear quarantine directory to prevent forensic leakage of dead session
+      removeDirRecursive(this.quarantineDirectory);
+
+      // Clean entire session directory so it is completely fresh for pairing
+      if (fs.existsSync(this.sessionDirectory)) {
         try {
-          fs.unlinkSync(path.join(this.sessionDirectory, file));
+          const entries = fs.readdirSync(this.sessionDirectory, { withFileTypes: true });
+          for (const entry of entries) {
+            const fullPath = path.join(this.sessionDirectory, entry.name);
+            try {
+              if (entry.isDirectory()) {
+                removeDirRecursive(fullPath);
+              } else {
+                fs.unlinkSync(fullPath);
+              }
+            } catch (_) {}
+          }
         } catch (_) {}
       }
 
@@ -829,7 +841,7 @@ export class SessionRecovery extends EventEmitter {
   }
 
   /**
-   * Explicitly resets terminal logged-out state when new authenticated login occurs.
+   * Explicitly resets terminal logged-out state when new authenticated login occurs or pairing starts.
    */
   resetTerminalState() {
     this._isTerminalLoggedOut = false;

@@ -124,4 +124,47 @@ export class SessionManager {
       throw new SessionError(`Failed to initialize auth state in "${this.directory}": ${err.message}`, { cause: err });
     }
   }
+
+  /**
+   * Completely purges the session directory and releases any held locks.
+   * Cleans all credentials, tokens, signal keys, and cached auth state.
+   */
+  async purgeSession() {
+    this.releaseLock();
+    this.authState = null;
+    this.saveCreds = null;
+
+    if (!fs.existsSync(this.directory)) {
+      return;
+    }
+
+    // Windows file locking tolerance: retry loop
+    const maxRetries = 5;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        fs.rmSync(this.directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+        break;
+      } catch (err) {
+        if (attempt === maxRetries) {
+          try {
+            const files = fs.readdirSync(this.directory);
+            for (const file of files) {
+              const fullPath = path.join(this.directory, file);
+              try {
+                fs.rmSync(fullPath, { recursive: true, force: true });
+              } catch (_) {}
+            }
+          } catch (_) {}
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+      }
+    }
+
+    try {
+      if (!fs.existsSync(this.directory)) {
+        fs.mkdirSync(this.directory, { recursive: true });
+      }
+    } catch (_) {}
+  }
 }

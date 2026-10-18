@@ -295,6 +295,45 @@ client.on('message', async (msg) => {
 
 ---
 
+## 🔐 Session Auto-Purge & Zero-Downtime Re-Pairing (Layer 3.2)
+
+Menyelesaikan masalah klasik bot WhatsApp ketika pengguna menghapus perangkat tertaut (*unlink companion device*) dari aplikasi WhatsApp di HP:
+* **Deteksi Disconnect 401/403 yang Akurat:** Mengenali kode pemutusan `401 (loggedOut)` dan `403 (forbidden)` secara defensif dari berbagai struktur objek Boom atau Baileys.
+* **Auto-Purge Total Tanpa Sisa:** Secara otomatis mengosongkan seluruh folder sesi (`session/`), mencakup `creds.json`, `tctoken-*.json`, `lid-mapping-*.json`, signal keys, folder `.backup/`, dan `.session.lock`. Dilengkapi mekanisme *retry loop* yang aman terhadap file lock di OS Windows.
+* **Bebas Crash Loop 401 Saat Restart:** Karena direktori sesi bersih secara tuntas, saat bot dijalankan kembali (`npm start`), sistem langsung mengenali sesi baru dan meminta kode pairing atau menampilkan QR code baru tanpa tersangkut di sesi mati.
+* **Zero-Downtime Auto Re-Pair:** Mendukung pemanggilan `client.connect()` langsung setelah `logged_out` tanpa melempar `StateError`.
+
+```javascript
+import { LeavesClient } from 'leaves-guardian';
+
+const client = new LeavesClient({
+  auth: {
+    directory: './session',
+    method: 'pairing',
+    phoneNumber: '628123456789'
+  }
+});
+
+// Tangani event perangkat tertaut dihapus dari WhatsApp ponsel
+client.on('logged_out', async (err) => {
+  console.log('Perangkat tertaut telah dicabut dari WhatsApp ponsel.');
+  console.log('Sesi lama telah dibersihkan otomatis. Memulai pairing ulang...');
+
+  // Jeda singkat lalu sambungkan ulang untuk pairing baru
+  setTimeout(async () => {
+    try {
+      await client.connect();
+    } catch (e) {
+      console.error('Gagal pairing ulang:', e.message);
+    }
+  }, 3000);
+});
+
+await client.connect();
+```
+
+---
+
 ## 🧪 Testing
 
 Jalankan automated test suite bawaan:

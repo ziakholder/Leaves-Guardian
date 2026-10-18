@@ -236,30 +236,62 @@ export class ConnectionManager extends EventEmitter {
         this._pairingTimeout = null;
       }
 
-      const statusCode = lastDisconnect?.error instanceof Boom
-        ? lastDisconnect.error.output.statusCode
-        : (lastDisconnect?.error?.code || null);
+      const rawError = lastDisconnect?.error;
+      const statusCode = rawError?.output?.statusCode
+        ?? rawError?.statusCode
+        ?? (rawError?.isBoom ? rawError.output?.statusCode : null)
+        ?? (rawError instanceof Boom ? rawError.output?.statusCode : null)
+        ?? (typeof rawError?.code === 'number' ? rawError.code : (Number(rawError?.code) || null))
+        ?? (typeof rawError?.data?.statusCode === 'number' ? rawError.data.statusCode : null)
+        ?? null;
       
-      const reason = this._classifyDisconnect(statusCode);
-      this.emit('connection_close', { statusCode, reason, error: lastDisconnect?.error });
+      const reason = this._classifyDisconnect(statusCode, rawError);
+      this.emit('connection_close', { statusCode, reason, error: rawError });
 
       if (reason === RECONNECT_REASONS.LOGGED_OUT) {
-        this.emit('logged_out', lastDisconnect?.error);
+        if (this.sock) {
+          try {
+            this.sock.ws?.close?.();
+            this.sock.end?.(undefined);
+          } catch (_) {}
+          this.sock = null;
+        }
+        if (this.reconnectManager) {
+          this.reconnectManager.reset();
+        }
+        if (this.sessionManager) {
+          this.sessionManager.purgeSession().catch(() => {});
+        }
+        this.emit('logged_out', rawError);
       } else if (!this._isShuttingDown) {
         this._handleAutoReconnect(reason);
       }
     }
   }
 
-  _classifyDisconnect(statusCode) {
-    if (!statusCode) return RECONNECT_REASONS.UNKNOWN_TRANSIENT;
-    if (statusCode === DisconnectReason.loggedOut) return RECONNECT_REASONS.LOGGED_OUT;
-    if (statusCode === DisconnectReason.badSession) return RECONNECT_REASONS.SESSION_CORRUPTED;
-    if (statusCode === DisconnectReason.connectionReplaced) return RECONNECT_REASONS.CONNECTION_REPLACED;
-    if (statusCode === DisconnectReason.connectionLost) return RECONNECT_REASONS.NETWORK_LOST;
-    if (statusCode === DisconnectReason.timedOut) return RECONNECT_REASONS.TIMED_OUT;
-    if (statusCode === DisconnectReason.restartRequired) return RECONNECT_REASONS.RESTART_REQUIRED;
-    if (statusCode === DisconnectReason.multideviceMismatch) return RECONNECT_REASONS.MULTIDEVICE_MISMATCH;
+  _classifyDisconnect(statusCode, rawError) {
+    const num = Number(statusCode);
+    if (
+      num === DisconnectReason.loggedOut ||
+      num === 401 ||
+      num === DisconnectReason.forbidden ||
+      num === 403
+    ) {
+      return RECONNECT_REASONS.LOGGED_OUT;
+    }
+
+    const errMsg = (rawError?.message || '').toLowerCase();
+    if (errMsg.includes('logged out') || errMsg.includes('stream:error (conflict') || errMsg.includes('device unlinked')) {
+      return RECONNECT_REASONS.LOGGED_OUT;
+    }
+
+    if (!num) return RECONNECT_REASONS.UNKNOWN_TRANSIENT;
+    if (num === DisconnectReason.badSession || num === 500) return RECONNECT_REASONS.SESSION_CORRUPTED;
+    if (num === DisconnectReason.connectionReplaced || num === 440) return RECONNECT_REASONS.CONNECTION_REPLACED;
+    if (num === DisconnectReason.connectionLost || num === 408) return RECONNECT_REASONS.NETWORK_LOST;
+    if (num === DisconnectReason.timedOut) return RECONNECT_REASONS.TIMED_OUT;
+    if (num === DisconnectReason.restartRequired || num === 515) return RECONNECT_REASONS.RESTART_REQUIRED;
+    if (num === DisconnectReason.multideviceMismatch || num === 411) return RECONNECT_REASONS.MULTIDEVICE_MISMATCH;
     return RECONNECT_REASONS.UNKNOWN_TRANSIENT;
   }
 
@@ -305,5 +337,15 @@ export class ConnectionManager extends EventEmitter {
 
   async close() {
     return this.closeSocket();
+  }
+
+  resetState() {
+    this._isShuttingDown = false;
+    this._pairingRequested = false;
+    this.isConnected = false;
+    if (this._pairingTimeout) {
+      clearTimeout(this._pairingTimeout);
+      this._pairingTimeout = null;
+    }
   }
 }

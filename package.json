@@ -1,6 +1,6 @@
 {
   "name": "leaves-guardian",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Enterprise Baileys Wrapper & Infrastructure Library for WhatsApp Bots",
   "homepage": "https://leavesguardian.enginelabs.my.id/",
   "main": "main/index.js",
@@ -24,9 +24,23 @@
 
   "license": "MIT",
   "author": "Rafa Dito / Royal Engine Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ziakholder/Leaves-Guardian.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ziakholder/Leaves-Guardian/issues"
+  },
   "keywords": [
     "whatsapp-bot",
     "baileys",
+    "baileys-wrapper",
+    "whatsapp-api",
+    "bot-wa",
+    "leaves-guardian",
+    "anti-crash",
+    "reconnect-backoff",
+    "whatsapp-automation",
     "wrapper",
     "library",
     "royal-bot"

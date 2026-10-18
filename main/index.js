@@ -74,6 +74,7 @@ export { default as ListMessage } from './models/list-message.js';
 export { default as ButtonMessage } from './models/button-message.js';
 export { default as RichMessage } from './models/rich-message.js';
 export { default as AIRichMessage } from './models/ai-rich-message.js';
+export { default as A2UIMessage } from './models/a2ui-message.js';
 export { default as TextMessage } from './models/text-message.js';
 export { default as MediaMessage } from './models/media-message.js';
 export { default as ProductMessage } from './models/product-message.js';
@@ -90,7 +91,8 @@ export { default as withAdReply } from './helpers/ad-reply.js';
 export { default as generateStatCard } from './helpers/stat-card.js';
 export { default as resolveMedia } from './helpers/media-resolver.js';
 export { default as resolveLidToPn } from './helpers/lid-resolver.js';
+export { default as buildInteractiveNodes } from './helpers/stanza-nodes.js';
 
 // Baileys Media & Content Primitives
-export { downloadMediaMessage, downloadContentFromMessage, getContentType, normalizeMessageContent, generateWAMessageFromContent, generateWAMessage } from '@whiskeysockets/baileys';
+export { downloadMediaMessage, downloadContentFromMessage, getContentType, normalizeMessageContent, generateWAMessageFromContent, generateWAMessage, proto } from '@whiskeysockets/baileys';
 

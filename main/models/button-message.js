@@ -4,6 +4,7 @@ import fs from 'fs';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError } from '../errors.js';
 import { resolveLidToPn } from '../helpers/lid-resolver.js';
+import { buildInteractiveNodes } from '../helpers/stanza-nodes.js';
 
 /**
  * ButtonMessage — wrapper custom di atas InteractiveMessage.NativeFlowMessage (Baileys).
@@ -292,34 +293,7 @@ class ButtonMessage extends BaseBuilder {
 
     const { title, body, footer } = this._renderAll();
 
-    const isGroup = typeof targetJid === 'string' && targetJid.endsWith('@g.us');
-    const additionalNodes = [
-      {
-        tag: 'biz',
-        attrs: {},
-        content: [{
-          tag: 'interactive',
-          attrs: {
-            type: 'native_flow',
-            v: '1',
-          },
-          content: [{
-            tag: 'native_flow',
-            attrs: {
-              v: '9',
-              name: 'mixed',
-            },
-          }],
-        }],
-      },
-    ];
-
-    if (!isGroup) {
-      additionalNodes.push({
-        tag: 'bot',
-        attrs: { biz_bot: '1' },
-      });
-    }
+    const additionalNodes = buildInteractiveNodes(targetJid);
 
     const content = await this.build();
     const payload = {

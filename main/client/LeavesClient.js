@@ -335,7 +335,7 @@ export class LeavesClient extends EventEmitter {
       }
     });
 
-    this.connectionManager.on('connection_close', ({ statusCode, reason, error }) => {
+    this.connectionManager.on('connection_close', async ({ statusCode, reason, error }) => {
       // Record lifecycle disconnect timestamp
       this.disconnectedAt = Date.now();
       this.readyAt = null;
@@ -352,11 +352,13 @@ export class LeavesClient extends EventEmitter {
         this.trafficController.pause();
       }
 
-      if (reason === 'LOGGED_OUT' || statusCode === 401) {
-        this._transition(CLIENT_STATES.LOGGED_OUT);
-        this.emit('connection_close', { statusCode, reason, error });
+      const numCode = Number(statusCode);
+      if (reason === 'LOGGED_OUT' || numCode === 401 || numCode === 403) {
+        this.emit('connection_close', { statusCode, reason: 'LOGGED_OUT', error });
+        await this._handleLoggedOut(error);
         return;
       }
+
       this._transition(CLIENT_STATES.DISCONNECTED, { statusCode, reason });
       this.terminal.warn('DISCONNECT', `Connection closed (${reason || statusCode || 'Unknown'})`);
       this.emit('connection_close', { statusCode, reason, error });
@@ -368,28 +370,8 @@ export class LeavesClient extends EventEmitter {
       this.emit('reconnecting', { reason });
     });
 
-    this.connectionManager.on('logged_out', (err) => {
-      this.disconnectedAt = Date.now();
-      this.readyAt = null;
-
-      if (this.watchdog) {
-        this.watchdog.pause();
-      }
-
-      if (this.memoryGuard) {
-        this.memoryGuard.pause();
-      }
-
-      if (this.trafficController) {
-        this.trafficController.pause();
-      }
-
-      this._transition(CLIENT_STATES.LOGGED_OUT);
-      this.terminal.error('LOGOUT', 'Device logged out or unlinked. Reconnection stopped.');
-      if (this.recovery) {
-        this.recovery.handleLoggedOut().catch(() => {});
-      }
-      this.emit('logged_out', err);
+    this.connectionManager.on('logged_out', async (err) => {
+      await this._handleLoggedOut(err);
     });
 
     this.connectionManager.on('socket_activity', ({ source }) => {
@@ -427,6 +409,45 @@ export class LeavesClient extends EventEmitter {
 
   }
 
+  async _handleLoggedOut(err) {
+    if (this.state === CLIENT_STATES.LOGGED_OUT) {
+      return;
+    }
+    this.disconnectedAt = Date.now();
+    this.readyAt = null;
+
+    if (this.watchdog) {
+      this.watchdog.pause();
+    }
+
+    if (this.memoryGuard) {
+      this.memoryGuard.pause();
+    }
+
+    if (this.trafficController) {
+      this.trafficController.pause();
+    }
+
+    this._transition(CLIENT_STATES.LOGGED_OUT);
+    this.terminal.error('LOGOUT', 'Device logged out or unlinked. Reconnection stopped.');
+
+    // 1. Purge all session files from disk and release lock
+    if (this.sessionManager) {
+      try {
+        await this.sessionManager.purgeSession();
+      } catch (_) {}
+    }
+
+    // 2. Purge snapshots & quarantine in recovery
+    if (this.recovery) {
+      try {
+        await this.recovery.handleLoggedOut();
+      } catch (_) {}
+    }
+
+    this.emit('logged_out', err);
+  }
+
   async _initializeRuntime() {
     return Promise.resolve();
   }
@@ -447,8 +468,20 @@ export class LeavesClient extends EventEmitter {
   }
 
   async connect() {
-    if (this.state !== CLIENT_STATES.IDLE && this.state !== CLIENT_STATES.DISCONNECTED) {
+    if (
+      this.state !== CLIENT_STATES.IDLE &&
+      this.state !== CLIENT_STATES.DISCONNECTED &&
+      this.state !== CLIENT_STATES.LOGGED_OUT
+    ) {
       throw new StateError(`Cannot connect while client is in ${this.state} state`);
+    }
+
+    // Reset terminal state & connection flags when connecting/re-initializing
+    if (this.recovery) {
+      this.recovery.resetTerminalState();
+    }
+    if (this.connectionManager) {
+      this.connectionManager.resetState();
     }
 
     this.terminal.banner();

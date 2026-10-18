@@ -2,6 +2,7 @@ import { generateWAMessageFromContent, prepareWAMessageMedia } from '@whiskeysoc
 import crypto from 'crypto';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError, DuplicateIdError } from '../errors.js';
+import { buildInteractiveNodes } from '../helpers/stanza-nodes.js';
 
 /**
  * CarouselCard — satu kartu di dalam Carousel. Dibuat lewat CarouselMessage.newCard(),
@@ -198,6 +199,8 @@ class CarouselMessage extends BaseBuilder {
 
     await this.#client.relayMessage(msg.key.remoteJid, msg.message, {
       messageId: msg.key.id,
+      additionalNodes: buildInteractiveNodes(targetJid),
+      ...options,
     });
 
     return msg;

@@ -4,6 +4,7 @@ import fs from 'fs';
 import BaseBuilder from './base-builder.js';
 import { ContentValidationError, DuplicateIdError, ItemNotFoundError } from '../errors.js';
 import { resolveLidToPn } from '../helpers/lid-resolver.js';
+import { buildInteractiveNodes } from '../helpers/stanza-nodes.js';
 
 /**
  * ListMessage — wrapper di atas InteractiveMessage (Native Flow: single_select) di Baileys.
@@ -229,34 +230,7 @@ class ListMessage extends BaseBuilder {
       },
     };
 
-    const isGroup = typeof targetJid === 'string' && targetJid.endsWith('@g.us');
-    const additionalNodes = [
-      {
-        tag: 'biz',
-        attrs: {},
-        content: [{
-          tag: 'interactive',
-          attrs: {
-            type: 'native_flow',
-            v: '1',
-          },
-          content: [{
-            tag: 'native_flow',
-            attrs: {
-              v: '9',
-              name: 'mixed',
-            },
-          }],
-        }],
-      },
-    ];
-
-    if (!isGroup) {
-      additionalNodes.push({
-        tag: 'bot',
-        attrs: { biz_bot: '1' },
-      });
-    }
+    const additionalNodes = buildInteractiveNodes(targetJid);
 
     const msg = generateWAMessageFromContent(targetJid, wrappedContent, sendOpts);
 
