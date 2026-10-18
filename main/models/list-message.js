@@ -93,9 +93,9 @@ class ListMessage extends BaseBuilder {
       thumbnail: opts.thumbnail || opts.image || null,
       latitude: opts.latitude ?? opts.degreesLatitude ?? 0,
       longitude: opts.longitude ?? opts.degreesLongitude ?? 0,
-      thumbWidth: opts.width || opts.thumbWidth || 500,
-      thumbHeight: opts.height || opts.thumbHeight || 500,
-      thumbQuality: opts.quality || opts.thumbQuality || 88,
+      thumbWidth: opts.width || opts.thumbWidth || 300,
+      thumbHeight: opts.height || opts.thumbHeight || 300,
+      thumbQuality: opts.quality || opts.thumbQuality || 85,
     };
     return this;
   }
@@ -167,14 +167,15 @@ class ListMessage extends BaseBuilder {
     let header = { hasMediaAttachment: false };
     if (this._locationHeader) {
       const thumbBuffer = await processThumbnailBuffer(this._locationHeader.thumbnail, {
-        width: this._locationHeader.thumbWidth || 500,
-        height: this._locationHeader.thumbHeight || 500,
-        quality: this._locationHeader.thumbQuality || 88,
+        width: this._locationHeader.thumbWidth || 300,
+        height: this._locationHeader.thumbHeight || 300,
+        quality: this._locationHeader.thumbQuality || 85,
       });
 
       header = {
         title: title || undefined,
         hasMediaAttachment: true,
+        jpegThumbnail: thumbBuffer || undefined,
         locationMessage: {
           degreesLatitude: Number(this._locationHeader.latitude) || 0,
           degreesLongitude: Number(this._locationHeader.longitude) || 0,

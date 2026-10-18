@@ -1,6 +1,6 @@
 {
   "name": "leaves-guardian",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "description": "Enterprise Baileys Wrapper & Infrastructure Library for WhatsApp Bots",
   "homepage": "https://leavesguardian.enginelabs.my.id/",
   "main": "main/index.js",
