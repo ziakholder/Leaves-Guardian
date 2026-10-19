@@ -250,8 +250,8 @@ class ButtonMessage extends BaseBuilder {
       thumbnail: opts.thumbnail || opts.image || null,
       latitude: opts.latitude ?? opts.degreesLatitude ?? 0,
       longitude: opts.longitude ?? opts.degreesLongitude ?? 0,
-      thumbWidth: opts.width || opts.thumbWidth || 400,
-      thumbHeight: opts.height || opts.thumbHeight || 225,
+      thumbWidth: opts.width || opts.thumbWidth || 300,
+      thumbHeight: opts.height || opts.thumbHeight || 300,
       thumbQuality: opts.quality || opts.thumbQuality || 85,
     };
     return this;
@@ -272,10 +272,10 @@ class ButtonMessage extends BaseBuilder {
     let header = { hasMediaAttachment: false };
     if (this._locationHeader) {
       const thumbBuffer = await processThumbnailBuffer(this._locationHeader.thumbnail, {
-        width: this._locationHeader.thumbWidth || 400,
-        height: this._locationHeader.thumbHeight || 225,
+        width: this._locationHeader.thumbWidth || 300,
+        height: this._locationHeader.thumbHeight || 300,
         quality: this._locationHeader.thumbQuality || 85,
-        banner: true,
+        banner: false,
       });
 
       header = {

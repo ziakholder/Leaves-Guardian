@@ -18,7 +18,7 @@ import fs from 'node:fs';
  * @param {number} [options.quality=80] - JPEG compression quality (1-100)
  * @returns {Promise<Buffer|null>}
  */
-export async function processThumbnailBuffer(source, { width, height, quality = 85, banner = true } = {}) {
+export async function processThumbnailBuffer(source, { width, height, quality = 85, banner } = {}) {
   if (!source) return null;
 
   let buffer = null;
@@ -44,14 +44,19 @@ export async function processThumbnailBuffer(source, { width, height, quality = 
     return null;
   }
 
+  const MAX_DIM = 300;
   const MAX_THUMB_BYTES = 30000;
-  const isBanner = banner !== false;
-  let targetW = Number(width) > 0 ? Number(width) : (isBanner ? 400 : 300);
-  let targetH = Number(height) > 0 ? Number(height) : (isBanner ? 225 : 300);
+  let targetW = Number(width) > 0 ? Number(width) : 300;
+  let targetH = Number(height) > 0 ? Number(height) : (banner === true ? 169 : (banner === false ? 300 : null));
   let targetQuality = Math.min(Math.max(Number(quality) || 85, 1), 100);
 
-  if (targetW > 400) targetW = 400;
-  if (targetH > 300) targetH = 300;
+  // WhatsApp mobile client strictly discards any inline thumbnail where width > 300 OR height > 300.
+  // We guarantee that neither dimension EVER exceeds MAX_DIM (300px), scaling down proportionally.
+  if (targetW > MAX_DIM || (targetH && targetH > MAX_DIM)) {
+    const scale = Math.min(MAX_DIM / targetW, targetH ? (MAX_DIM / targetH) : 1);
+    targetW = Math.round(targetW * scale);
+    if (targetH) targetH = Math.round(targetH * scale);
+  }
 
   // Engine 1: sharp (Lanczos3 kernel + smart sharpen + MozJPEG with adaptive byte-budget)
   try {
@@ -59,6 +64,10 @@ export async function processThumbnailBuffer(source, { width, height, quality = 
     const sharp = sharpModule.default || sharpModule;
     const meta = await sharp(buffer).metadata();
     const srcRatio = (meta.width && meta.height) ? (meta.width / meta.height) : 1;
+    if (!targetH) {
+      targetH = srcRatio >= 1.35 ? Math.max(Math.round(targetW / srcRatio), 150) : targetW;
+    }
+    const targetRatio = targetW / targetH;
 
     let curW = targetW;
     let curH = targetH;
@@ -67,17 +76,27 @@ export async function processThumbnailBuffer(source, { width, height, quality = 
 
     for (let attempt = 0; attempt < 8; attempt++) {
       let basePipeline;
-      if (isBanner && srcRatio < 1.35) {
-        // Source is square or portrait: composite onto 16:9 banner with blurred ambient background
-        // so the subject NEVER appears squished/gepeng on WhatsApp mobile
+
+      // Smart aspect ratio preservation:
+      // If difference between source ratio and target ratio is significant (> 0.25),
+      // we NEVER stretch the image (which causes "gepeng" distortion).
+      // Instead, we place the intact foreground onto a dimmed, ambient-blurred background.
+      if (Math.abs(srcRatio - targetRatio) > 0.25) {
         const bg = await sharp(buffer)
           .resize(curW, curH, { fit: 'cover', position: 'center' })
-          .blur(18)
-          .modulate({ brightness: 0.75 })
+          .blur(16)
+          .modulate({ brightness: 0.7 })
           .toBuffer();
 
-        const fgH = Math.max(curH - 12, 10);
-        const fgW = Math.round(fgH * srcRatio);
+        let fgW, fgH;
+        if (srcRatio > targetRatio) {
+          fgW = Math.max(curW - 8, 10);
+          fgH = Math.round(fgW / srcRatio);
+        } else {
+          fgH = Math.max(curH - 8, 10);
+          fgW = Math.round(fgH * srcRatio);
+        }
+
         const fg = await sharp(buffer)
           .resize(fgW, fgH, { fit: 'contain' })
           .toBuffer();
@@ -108,16 +127,16 @@ export async function processThumbnailBuffer(source, { width, height, quality = 
 
       if (curQ > 65) {
         curQ -= 5;
-      } else if (curW > 300) {
-        curW = 300;
-        curH = isBanner ? 169 : 300;
+      } else if (curW > 250) {
+        curW = Math.round(curW * 0.88);
+        curH = Math.round(curH * 0.88);
         curQ = 80;
       } else {
         break;
       }
     }
 
-    if (output && output.length > 0) return output;
+    if (output && output.length > 0 && output.length <= MAX_THUMB_BYTES) return output;
   } catch (_) {}
 
   // Engine 2: @napi-rs/canvas (Skia Rust engine)
@@ -125,23 +144,30 @@ export async function processThumbnailBuffer(source, { width, height, quality = 
     const { createCanvas, loadImage } = await import('@napi-rs/canvas');
     const img = await loadImage(buffer);
     const srcRatio = (img.width && img.height) ? (img.width / img.height) : 1;
-    const canvasW = Math.min(targetW, 400);
+    const canvasW = Math.min(targetW, 300);
     const canvasH = Math.min(targetH, 300);
+    const targetRatio = canvasW / canvasH;
     const canvas = createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    if (isBanner && srcRatio < 1.35) {
+    if (Math.abs(srcRatio - targetRatio) > 0.25) {
       const scaleBg = Math.max(canvasW / img.width, canvasH / img.height);
       const bgW = img.width * scaleBg;
       const bgH = img.height * scaleBg;
       ctx.drawImage(img, (canvasW - bgW) / 2, (canvasH - bgH) / 2, bgW, bgH);
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
       ctx.fillRect(0, 0, canvasW, canvasH);
 
-      const fgH = canvasH - 12;
-      const fgW = Math.round(fgH * srcRatio);
+      let fgW, fgH;
+      if (srcRatio > targetRatio) {
+        fgW = canvasW - 8;
+        fgH = Math.round(fgW / srcRatio);
+      } else {
+        fgH = canvasH - 8;
+        fgW = Math.round(fgH * srcRatio);
+      }
       ctx.drawImage(img, (canvasW - fgW) / 2, (canvasH - fgH) / 2, fgW, fgH);
     } else {
       const scale = Math.max(canvasW / img.width, canvasH / img.height);
@@ -159,9 +185,11 @@ export async function processThumbnailBuffer(source, { width, height, quality = 
     const jimpModule = await import('jimp');
     const Jimp = jimpModule.default || jimpModule;
     const img = await Jimp.read(buffer);
-    img.cover(targetW, targetH).quality(targetQuality);
+    const finalW = Math.min(targetW, 300);
+    const finalH = Math.min(targetH, 300);
+    img.cover(finalW, finalH).quality(targetQuality);
     const output = await img.getBufferAsync(Jimp.MIME_JPEG);
-    if (output && output.length > 0) return output;
+    if (output && output.length > 0 && output.length <= MAX_THUMB_BYTES) return output;
   } catch (_) {}
 
   // Engine 4: raw buffer fallback
