@@ -19,6 +19,9 @@ export class SessionManager {
     this.authMethod = (methodRaw === 'code' || methodRaw === 'pairing') ? 'pairing' : (methodRaw === 'qr' ? 'qr' : (options.phoneNumber ? 'pairing' : 'qr'));
     this.phoneNumber = options.phoneNumber ? normalizePhoneNumber(options.phoneNumber) : null;
     this.customCode = options.customCode ? String(options.customCode).trim() : null;
+    this.storage = (options.storage || (options.useSQLite ? 'sqlite' : 'multi-file')).toLowerCase();
+    this.dbPath = options.dbPath || path.join(this.directory, 'auth.db');
+    this.sqliteOptions = options.sqliteOptions || {};
     this.lockFile = path.join(this.directory, '.session.lock');
     this._isLocked = false;
     this.authState = null;
@@ -26,6 +29,9 @@ export class SessionManager {
   }
 
   hasSession() {
+    if (this.storage === 'sqlite') {
+      return fs.existsSync(this.dbPath);
+    }
     const credsPath = path.join(this.directory, 'creds.json');
     return fs.existsSync(credsPath);
   }
@@ -105,7 +111,15 @@ export class SessionManager {
   async initAuth() {
     this.acquireLock();
     try {
-      const { state, saveCreds } = await useMultiFileAuthState(this.directory);
+      let authStateResult;
+      if (this.storage === 'sqlite') {
+        const { useSQLiteAuthState } = await import('../sqlite/useSQLiteAuthState.js');
+        authStateResult = await useSQLiteAuthState(this.dbPath, this.sqliteOptions);
+      } else {
+        authStateResult = await useMultiFileAuthState(this.directory);
+      }
+
+      const { state, saveCreds } = authStateResult;
 
       // If pairing auth is used but registration was not completed in a previous attempt,
       // clean stale uncompleted companion link state to allow fresh pairing

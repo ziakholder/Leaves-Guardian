@@ -5,6 +5,7 @@ import { ConnectionError, AuthenticationError } from '../errors/LeavesError.js';
 import { RECONNECT_REASONS, NON_RECOVERABLE_REASONS } from './ReconnectManager.js';
 import { normalizePhoneNumber } from './SessionManager.js';
 import { MessageStore } from '../store/MessageStore.js';
+import { decorateSocket } from '../socket/socket-decorator.js';
 
 class MemoryRetryCache {
   constructor(limit = 2000) {
@@ -123,6 +124,7 @@ export class ConnectionManager extends EventEmitter {
         return message;
       }
     });
+    decorateSocket(this.sock);
 
     this.eventManager.bindSocketEvents(this.sock, {
       onConnectionUpdate: (update) => this._handleConnectionUpdate(update),

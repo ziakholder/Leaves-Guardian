@@ -195,8 +195,8 @@ function tokenizeCode(code, lang = 'javascript') {
 }
 
 /**
- * AIRichMessage — WhatsApp Meta AI Rich Response Builder (Zaileys / NIXCODE / Ryuu Protocol).
- * Supports Markdown Text, Suggestion ActionRow Pills, Syntax Highlighting, Tables, Media, Products, and Posts.
+ * AIRichMessage - WhatsApp Meta AI Rich Response Builder (Zaileys / NIXCODE / Ryuu Protocol).
+ * Supports Markdown Text, Suggestion ActionRow Pills, Syntax Highlighting, Tables, Media, Products, Posts, and HTML Player.
  */
 class AIRichMessage extends BaseBuilder {
   #client;
@@ -208,6 +208,7 @@ class AIRichMessage extends BaseBuilder {
     this._sections = [];
     this._submessages = [];
     this._richResponseSources = [];
+    this._htmlPayloads = [];
     this._responseId = crypto.randomUUID();
     this._botResponseId = crypto.randomUUID();
   }
@@ -371,6 +372,13 @@ class AIRichMessage extends BaseBuilder {
    */
   addHtml(html, { trustedSources = ['nixel.dev', 'whatsapp.com'] } = {}) {
     const rendered = this._render(html);
+    const sources = Array.isArray(trustedSources) ? trustedSources : [trustedSources];
+
+    this._htmlPayloads.push({
+      payload: rendered,
+      trusted_sources: sources,
+    });
+
     this._submessages.push({
       messageType: 2,
       messageText: rendered,
@@ -378,9 +386,10 @@ class AIRichMessage extends BaseBuilder {
 
     this._sections.push(
       AIRichMessage.newLayout('Single', {
+        payload: rendered,
         html_code: rendered,
-        trusted_sources: Array.isArray(trustedSources) ? trustedSources : [trustedSources],
-        __typename: 'GenAIaeacdsnwHtmlPrimitive',
+        trusted_sources: sources,
+        __typename: 'FOAHtmlPrimitiveDemoDONOTUSE',
       })
     );
 
@@ -500,7 +509,48 @@ class AIRichMessage extends BaseBuilder {
     ...options
   } = {}) {
     if (this._sections.length === 0) {
-      throw new ContentValidationError('Minimal 1 konten (addText/addCode/addTable/addSuggest) sebelum build()');
+      throw new ContentValidationError('Minimal 1 konten (addText/addCode/addTable/addSuggest/addHtml) sebelum build()');
+    }
+
+    const isHtmlOnly = this._htmlPayloads.length > 0 && this._sections.length === this._htmlPayloads.length;
+    if (isHtmlOnly) {
+      const htmlPayloadObj = {
+        __typename: 'GenAIUnifiedResponse',
+        response_id: crypto.randomUUID(),
+        sections: [{
+          __typename: 'GenAIUnifiedResponseSection',
+          view_model: {
+            __typename: 'GenAISingleLayoutViewModel',
+            primitive: {
+              __typename: 'FOAHtmlPrimitiveDemoDONOTUSE',
+              trusted_sources: this._htmlPayloads[0].trusted_sources,
+              payload: this._htmlPayloads[0].payload,
+            },
+          },
+        }],
+      };
+
+      return generateWAMessageFromContent(
+        jid,
+        {
+          botForwardedMessage: {
+            message: {
+              richResponseMessage: {
+                messageType: 1,
+                unifiedResponse: {
+                  data: Buffer.from(JSON.stringify(htmlPayloadObj)).toString('base64'),
+                },
+                contextInfo: {
+                  isForwarded: true,
+                  forwardOrigin: 4,
+                  ...this._buildContextInfo(),
+                },
+              },
+            },
+          },
+        },
+        { userJid: this.#client.user?.id, ...options }
+      );
     }
 
     const { title, footer } = this._renderAll();
@@ -589,5 +639,6 @@ class AIRichMessage extends BaseBuilder {
   }
 }
 
+export { AIRichMessage };
 export default AIRichMessage;
 

@@ -5,7 +5,7 @@ import { ContentValidationError, DuplicateIdError } from '../errors.js';
 import { buildInteractiveNodes } from '../helpers/stanza-nodes.js';
 
 /**
- * CarouselCard — satu kartu di dalam Carousel. Dibuat lewat CarouselMessage.newCard(),
+ * CarouselCard - satu kartu di dalam Carousel. Dibuat lewat CarouselMessage.newCard(),
  * bukan langsung di-instantiate.
  */
 class CarouselCard {
@@ -66,7 +66,7 @@ class CarouselCard {
 }
 
 /**
- * CarouselMessage — Builder kartu geser (Carousel) interaktif untuk WhatsApp.
+ * CarouselMessage - Builder kartu geser (Carousel) interaktif untuk WhatsApp.
  * Menampilkan beberapa kartu horizontal yang bisa digeser oleh user di Android, iOS, maupun WhatsApp Web/Desktop.
  *
  * Contoh pakai:
@@ -96,15 +96,41 @@ class CarouselMessage extends BaseBuilder {
     if (!client) throw new Error('Socket Baileys wajib di-pass ke constructor');
     this.#client = BaseBuilder.resolveSocket(client);
     this._cards = new Map();
+    this._rawCards = [];
   }
 
-  /** Tambah card baru lewat callback atau instance (chainable ke CarouselMessage) */
+  /**
+   * Tambah card baru lewat callback, instance CarouselCard, raw card object (Button.toCard()),
+   * atau array kumpulan card.
+   */
   addCard(cardOrFn) {
-    const cardId = `card_${this._cards.size + 1}`;
-    const card = new CarouselCard((text) => this._render(text));
-    if (typeof cardOrFn === 'function') {
-      cardOrFn(card);
+    if (Array.isArray(cardOrFn)) {
+      for (const item of cardOrFn) {
+        this.addCard(item);
+      }
+      return this;
     }
+
+    if (typeof cardOrFn === 'function') {
+      const cardId = `card_${this._cards.size + this._rawCards.length + 1}`;
+      const card = new CarouselCard((text) => this._render(text));
+      cardOrFn(card);
+      this._cards.set(cardId, card);
+      return this;
+    }
+
+    if (cardOrFn && typeof cardOrFn.toCard === 'function') {
+      this._rawCards.push(cardOrFn.toCard());
+      return this;
+    }
+
+    if (cardOrFn && (cardOrFn.header || cardOrFn.nativeFlowMessage || cardOrFn.then)) {
+      this._rawCards.push(cardOrFn);
+      return this;
+    }
+
+    const cardId = `card_${this._cards.size + this._rawCards.length + 1}`;
+    const card = new CarouselCard((text) => this._render(text));
     this._cards.set(cardId, card);
     return this;
   }
@@ -120,13 +146,14 @@ class CarouselMessage extends BaseBuilder {
   }
 
   async build() {
-    if (this._cards.size < 2) {
+    const totalCardsCount = this._cards.size + this._rawCards.length;
+    if (totalCardsCount < 2) {
       throw new ContentValidationError('Carousel minimal butuh 2 card (kalau cuma 1, pakai ButtonMessage biasa)');
     }
 
     const { body, footer } = this._renderAll();
 
-    const cards = await Promise.all(
+    const standardCards = await Promise.all(
       [...this._cards.values()].map(async (card) => {
         let header = { hasMediaAttachment: false };
         if (card._image) {
@@ -158,13 +185,22 @@ class CarouselMessage extends BaseBuilder {
       })
     );
 
+    const resolvedRawCards = await Promise.all(
+      this._rawCards.map(async (raw) => {
+        const item = raw && typeof raw.then === 'function' ? await raw : raw;
+        return item;
+      })
+    );
+
+    const allCards = [...standardCards, ...resolvedRawCards];
+
     return {
       interactiveMessage: {
         header: { hasMediaAttachment: false },
         body: { text: body },
         footer: footer ? { text: footer } : undefined,
         carouselMessage: {
-          cards,
+          cards: allCards,
           messageVersion: 1,
         },
         contextInfo: this._contextInfo,
@@ -207,4 +243,5 @@ class CarouselMessage extends BaseBuilder {
   }
 }
 
+export { CarouselMessage, CarouselCard };
 export default CarouselMessage;

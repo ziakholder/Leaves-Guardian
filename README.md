@@ -355,6 +355,184 @@ await client.connect();
 
 ---
 
+## 🎨 Interactive Message Builders & Extension Suite
+
+Leaves Guardian menyediakan pustaka builder pesan interaktif terlengkap dan tangguh untuk WhatsApp bot, dengan dukungan rendering multi-device dan fallback otomatis.
+
+### 1. WhatsApp Native Album (`sendAlbum` & `AlbumMessage`)
+Kirim sekumpulan foto dan video yang otomatis dikelompokkan menjadi satu album WhatsApp asli:
+
+```javascript
+// Cara 1: Lewat client.sendAlbum langsung
+await client.sendAlbum(msg.chat.id, [
+  { image: { url: 'https://example.com/item1.jpg' }, caption: 'Item 1' },
+  { image: fs.readFileSync('./item2.jpg'), caption: 'Item 2' },
+  { video: { url: 'https://example.com/item3.mp4' }, caption: 'Video 3' }
+]);
+
+// Cara 2: Lewat AlbumMessage Builder
+import { AlbumMessage } from 'leaves-guardian';
+
+const album = new AlbumMessage(client)
+  .addImage('https://example.com/foto1.jpg', { caption: 'Foto 1' })
+  .addImage('https://example.com/foto2.jpg', { caption: 'Foto 2' });
+
+await album.send(msg.chat.id);
+```
+
+### 2. WhatsApp Catalog Order (`sendOrder` & `OrderMessage`)
+Kirim kartu invoice atau rincian pesanan resmi WhatsApp (OrderMessage):
+
+```javascript
+// Lewat client.sendOrder
+await client.sendOrder(msg.chat.id, {
+  orderTitle: 'Pesanan Kopi Susu',
+  message: '2x Kopi Susu Aren (L)',
+  itemCount: 2,
+  totalAmount: 36000,
+  totalCurrencyCode: 'IDR'
+});
+
+// Lewat OrderMessage Builder
+import { OrderMessage } from 'leaves-guardian';
+
+const order = new OrderMessage(client)
+  .setOrderTitle('Kopi Susu Aren')
+  .setMessage('Pesanan siap diantar')
+  .setItemCount(1)
+  .setTotalAmount(18000, 'IDR')
+  .setThumbnail('https://example.com/kopi.jpg');
+
+await order.send(msg.chat.id);
+```
+
+### 3. WhatsApp Sticker Pack (`sendStickerPack` & `StickerPackMessage`)
+Kirim paket bundel stiker WhatsApp lengkap beserta tray icon:
+
+```javascript
+import { StickerPackMessage } from 'leaves-guardian';
+
+const pack = new StickerPackMessage(client)
+  .setName('Koleksi Stiker Leaves')
+  .setPublisher('Royal Engine Studio')
+  .setCover(fs.readFileSync('./tray-cover.webp'))
+  .addSticker(fs.readFileSync('./stiker1.webp'), ['🔥'])
+  .addSticker(fs.readFileSync('./stiker2.webp'), ['🎉']);
+
+await pack.send(msg.chat.id);
+```
+
+### 4. Legacy Button V2 (`ButtonMessageV2` / `ButtonV2`)
+Kirim pesan tombol WhatsApp format lama (`buttonsMessage`) dengan trik `headerType: 6` (Location Header) agar tombol tetap muncul di WhatsApp klien lawas:
+
+```javascript
+import { ButtonMessageV2 } from 'leaves-guardian';
+
+const btn = new ButtonMessageV2(client)
+  .setTitle('Menu Navigasi')
+  .setSubtitle('Pilih salah satu opsi:')
+  .setBody('Halo! Mau cek apa hari ini?')
+  .setFooter('Leaves Guardian')
+  .addButton('Daftar Produk', 'menu_produk')
+  .addButton('Bantuan CS', 'menu_cs');
+
+await btn.send(msg.chat.id);
+```
+
+### 5. Universal Fluent Message Builder Proxy
+Bangun tipe pesan apa saja secara dinamis dengan chaining proxy yang ringkas:
+
+```javascript
+await client.messageBuilder(msg.chat.id)
+  .setType('Order')
+  .setOrderTitle('Paket Premium')
+  .setTotalAmount(50000)
+  .send();
+```
+
+### 6. SQLite Auth State Adapter (`useSQLiteAuthState`)
+Gunakan satu file database SQLite (`auth.db`) sebagai ganti ribuan file JSON kecil:
+
+```javascript
+const client = new LeavesClient({
+  auth: {
+    storage: 'sqlite', // 'sqlite' atau 'multi-file' (default)
+    dbPath: './session/auth.db'
+  }
+});
+```
+
+### 7. Advanced Link Preview (`withLinkPreview` & `setLinkPreview`)
+Kirim pesan tautan web dengan kartu preview kaya (judul, deskripsi, thumbnail jernih ukuran besar atau standar, dan favicon resmi via MMS metadata):
+
+```javascript
+// Cara 1: Menggunakan TextMessage Builder
+const textMsg = new TextMessage(client)
+  .setBody('Kunjungi dokumentasi resmi Leaves Guardian:')
+  .setLinkPreview({
+    url: 'https://leavesguardian.enginelabs.my.id/',
+    title: 'Leaves Guardian Docs',
+    description: 'Enterprise Baileys wrapper & infrastructure library',
+    thumbnail: './assets/banner.jpg',
+    favicon: './assets/favicon.png',
+    largerThumbnail: true
+  });
+
+await textMsg.send(msg.chat.id);
+
+// Cara 2: Menggunakan Helper withLinkPreview Langsung
+import { withLinkPreview } from 'leaves-guardian';
+
+const preview = await withLinkPreview({
+  url: 'https://github.com/ziakholder/Leaves-Guardian',
+  title: 'GitHub Repository',
+  description: 'Open source repository',
+  thumbnail: fs.readFileSync('./thumb.jpg')
+}, client.getRawSocket());
+```
+
+### 8. Modular Carousel Card Conversion (`ButtonMessage.toCard()`)
+Ubah instance `ButtonMessage` apa saja menjadi kartu carousel geser secara otomatis tanpa perlu mendefinisikan ulang tombol dan strukturnya:
+
+```javascript
+import { ButtonMessage, CarouselMessage } from 'leaves-guardian';
+
+const card1 = new ButtonMessage(client)
+  .setTitle('Menu Paket 1')
+  .setBody('Diskon spesial pengguna baru')
+  .setFooter('Promo terbatas')
+  .addReply('Pesan Paket 1', 'order_1');
+
+const card2 = new ButtonMessage(client)
+  .setTitle('Menu Paket 2')
+  .setBody('Porsi jumbo untuk 2 orang')
+  .setFooter('Promo terbatas')
+  .addReply('Pesan Paket 2', 'order_2');
+
+const carousel = new CarouselMessage(client)
+  .setBody('Silakan pilih paket menu kami di bawah:')
+  .addCard([card1, card2]);
+
+await carousel.send(msg.chat.id);
+```
+
+### 9. Meta AI Rich Interactive HTML (`AIRichMessage.addHtml()`)
+Render payload mini-app / widget HTML interaktif di dalam bubble pesan WhatsApp:
+
+```javascript
+import { AIRichMessage } from 'leaves-guardian';
+
+const ai = new AIRichMessage(client)
+  .setTitle('Interactive Dashboard')
+  .addHtml('<html><body><h1>Halo dari Leaves AI</h1></body></html>', {
+    trustedSources: ['leavesguardian.enginelabs.my.id', 'nixel.dev']
+  });
+
+await ai.send(msg.chat.id);
+```
+
+---
+
 ## 🧪 Testing
 
 Jalankan automated test suite bawaan:

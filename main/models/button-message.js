@@ -451,6 +451,73 @@ class ButtonMessage extends BaseBuilder {
       throw relayErr;
     }
   }
+
+  /**
+   * Mengubah instance ButtonMessage menjadi format kartu Carousel (Carousel Card).
+   * @returns {Promise<Object>}
+   */
+  async toCard() {
+    const { title, body, footer } = this._renderAll();
+    let header = { hasMediaAttachment: false };
+
+    if (this._locationHeader) {
+      const thumbBuffer = await processThumbnailBuffer(this._locationHeader.thumbnail, {
+        width: this._locationHeader.thumbWidth || 300,
+        height: this._locationHeader.thumbHeight || 300,
+        quality: this._locationHeader.thumbQuality || 85,
+        banner: false,
+      });
+
+      header = {
+        title: title || undefined,
+        hasMediaAttachment: true,
+        jpegThumbnail: thumbBuffer || undefined,
+        locationMessage: {
+          degreesLatitude: Number(this._locationHeader.latitude) || 0,
+          degreesLongitude: Number(this._locationHeader.longitude) || 0,
+          name: this._render(this._locationHeader.name),
+          address: this._render(this._locationHeader.address),
+          jpegThumbnail: thumbBuffer || undefined,
+        },
+      };
+    } else if (this._media) {
+      const rawSock = this.#client;
+      const uploadFn = rawSock?.waUploadToServer
+        ? (typeof rawSock.waUploadToServer === 'function' ? rawSock.waUploadToServer.bind(rawSock) : rawSock.waUploadToServer)
+        : (rawSock?.upload ? rawSock.upload.bind(rawSock) : undefined);
+
+      const mediaKey = this._mediaType;
+      const mediaPayload = {
+        [mediaKey]: Buffer.isBuffer(this._media) ? this._media : { url: this._media },
+        ...this._mediaOptions,
+      };
+
+      try {
+        const prepared = await prepareWAMessageMedia(mediaPayload, { upload: uploadFn });
+        const messageKey = `${this._mediaType}Message`;
+        header = {
+          title: title || undefined,
+          hasMediaAttachment: true,
+          [messageKey]: prepared[messageKey],
+        };
+      } catch (_) {
+        if (title) header = { title, hasMediaAttachment: false };
+      }
+    } else if (title) {
+      header = { title, hasMediaAttachment: false };
+    }
+
+    return {
+      header: Object.keys(header).length > 0 ? header : undefined,
+      body: { text: body },
+      footer: footer ? { text: footer } : undefined,
+      nativeFlowMessage: {
+        buttons: this._buttons,
+        messageParamsJson: Object.keys(this._params).length > 0 ? JSON.stringify(this._params) : '',
+      },
+    };
+  }
 }
 
+export { ButtonMessage };
 export default ButtonMessage;

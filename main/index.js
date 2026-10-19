@@ -72,6 +72,7 @@ export { AutoDeleteManager, AutoDeleteTask, AUTODELETE_STATES, normalizeMessageK
 // Message Builders (Layer 1 - 100% Backward Compatible)
 export { default as ListMessage } from './models/list-message.js';
 export { default as ButtonMessage } from './models/button-message.js';
+export { default as ButtonMessageV2, ButtonV2 } from './models/button-message-v2.js';
 export { default as LocationMessage } from './models/location-message.js';
 export { default as RichMessage } from './models/rich-message.js';
 export { default as AIRichMessage } from './models/ai-rich-message.js';
@@ -84,17 +85,27 @@ export { default as CarouselMessage } from './models/carousel-message.js';
 export { default as CanvasMessage } from './models/canvas-message.js';
 export { default as EventMessage } from './models/event-message.js';
 export { default as StickerMessage } from './models/sticker-message.js';
+export { default as AlbumMessage } from './models/album-message.js';
+export { default as OrderMessage } from './models/order-message.js';
+export { default as StickerPackMessage } from './models/sticker-pack-message.js';
 export { default as BaseBuilder } from './models/base-builder.js';
 
-// Helpers
+// Helpers & Extensions
 export { default as withChannelForward } from './helpers/channel-forward.js';
 export { default as withAdReply } from './helpers/ad-reply.js';
 export { default as generateStatCard } from './helpers/stat-card.js';
 export { default as resolveMedia } from './helpers/media-resolver.js';
-export { default as resolveLidToPn } from './helpers/lid-resolver.js';
+export { default as resolveLidToPn, getPNFromLid, getLidFromPN } from './helpers/lid-resolver.js';
 export { default as buildInteractiveNodes } from './helpers/stanza-nodes.js';
 export { processThumbnailBuffer } from './helpers/thumbnail-processor.js';
+export { audioToOpus, AudioToOpus } from './helpers/audio-converter.js';
+export { default as withLinkPreview } from './helpers/link-preview.js';
+
+// Socket Decorators & Auth Adapters
+export { decorateSocket, addProperty, createMessageBuilder } from './socket/socket-decorator.js';
+export { useSQLiteAuthState } from './sqlite/useSQLiteAuthState.js';
 
 // Baileys Media & Content Primitives
 export { downloadMediaMessage, downloadContentFromMessage, getContentType, normalizeMessageContent, generateWAMessageFromContent, generateWAMessage, proto } from '@whiskeysockets/baileys';
+
 

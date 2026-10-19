@@ -26,8 +26,14 @@ import { IngressRateLimiter } from '../limiter/IngressRateLimiter.js';
 import { IngressDeduplicator } from '../dedup/IngressDeduplicator.js';
 import { TerminalManager } from '../terminal/TerminalManager.js';
 import { PresentationAdapter } from '../terminal/PresentationAdapter.js';
-import { resolveLidToPn } from '../helpers/lid-resolver.js';
+import { resolveLidToPn, getPNFromLid, getLidFromPN } from '../helpers/lid-resolver.js';
 import { GroupCache } from '../group/GroupCache.js';
+import { AlbumMessage } from '../models/album-message.js';
+import { OrderMessage } from '../models/order-message.js';
+import { StickerPackMessage } from '../models/sticker-pack-message.js';
+import ButtonMessage from '../models/button-message.js';
+import CarouselMessage from '../models/carousel-message.js';
+import { createMessageBuilder } from '../socket/socket-decorator.js';
 
 
 export const CLIENT_STATES = Object.freeze({
@@ -242,7 +248,7 @@ export class LeavesClient extends EventEmitter {
   }
 
   /**
-   * Advanced API — direct Baileys access.
+   * Advanced API - direct Baileys access.
    * WARNING: Direct Baileys access bypasses Leaves Guardian lifecycle and reliability guarantees.
    */
   getRawSocket() {
@@ -559,6 +565,114 @@ export class LeavesClient extends EventEmitter {
 
   async sendText(jid, text, options = {}) {
     return this.sendMessage(jid, { text }, options);
+  }
+
+  async sendAlbum(jid, items = [], options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) throw new ConnectionError('Socket not available for sendAlbum');
+    const album = new AlbumMessage(sock).setItems(items);
+    return album.send(jid, options);
+  }
+
+  async sendOrder(jid, orderData = {}, options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) throw new ConnectionError('Socket not available for sendOrder');
+    if (typeof sock.sendOrder === 'function') {
+      return sock.sendOrder(jid, orderData, options);
+    }
+    const order = new OrderMessage(sock);
+    if (orderData.orderId) order.setOrderId(orderData.orderId);
+    if (orderData.orderTitle) order.setOrderTitle(orderData.orderTitle);
+    if (orderData.message) order.setMessage(orderData.message);
+    if (orderData.itemCount) order.setItemCount(orderData.itemCount);
+    if (orderData.status !== undefined) order.setStatus(orderData.status);
+    if (orderData.surface !== undefined) order.setSurface(orderData.surface);
+    if (orderData.sellerJid) order.setSeller(orderData.sellerJid);
+    if (orderData.token) order.setToken(orderData.token);
+    if (orderData.thumbnail) order.setThumbnail(orderData.thumbnail);
+    if (orderData.totalAmount !== undefined) {
+      order.setTotalAmount(orderData.totalAmount, orderData.totalCurrencyCode || 'IDR');
+    } else if (orderData.totalAmount1000 !== undefined) {
+      order.setTotalAmount(orderData.totalAmount1000 / 1000, orderData.totalCurrencyCode || 'IDR');
+    }
+    return order.send(jid, options);
+  }
+
+  async sendButton(jid, content = {}, options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) throw new ConnectionError('Socket not available for sendButton');
+    if (typeof sock.sendButton === 'function') {
+      return sock.sendButton(jid, content, options);
+    }
+    const btn = new ButtonMessage(sock);
+    if (content.title) btn.setTitle(content.title);
+    if (content.text || content.body || content.caption) btn.setBody(content.text || content.body || content.caption);
+    if (content.footer) btn.setFooter(content.footer);
+    if (options.quoted || content.quoted) btn.quote(options.quoted || content.quoted);
+    if (content.image) btn.setImage(content.image);
+    else if (content.video) btn.setVideo(content.video);
+    else if (content.document) btn.setDocument(content.document, { fileName: content.fileName, mimetype: content.mimetype });
+    else if (content.location) btn.setLocation(content.location);
+    if (Array.isArray(content.buttons)) {
+      for (const b of content.buttons) {
+        if (typeof b === 'object' && b.name && b.buttonParamsJson) btn.addButton(b.name, b.buttonParamsJson);
+        else btn.addReply(typeof b === 'string' ? b : (b.text || b.displayText || 'Button'), b.id || `btn_${Date.now()}`);
+      }
+    }
+    return btn.send(jid, options);
+  }
+
+  async sendCard(jid, options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) throw new ConnectionError('Socket not available for sendCard');
+    if (typeof sock.sendCard === 'function') {
+      return sock.sendCard(jid, options);
+    }
+    const { text = '', footer = '', cards = [], quoted = null } = options;
+    const carousel = new CarouselMessage(sock).setBody(text).setFooter(footer);
+    if (quoted) carousel.quote(quoted);
+    for (let i = 0; i < cards.length; i++) {
+      const item = cards[i];
+      const card = carousel.newCard(`card_${i + 1}`);
+      if (item.caption || item.title) card.setTitle(item.caption || item.title);
+      if (item.image) card.setImage(item.image);
+      if (item.body) card.setBody(item.body);
+      if (item.footer) card.setFooter(item.footer);
+      if (Array.isArray(item.buttons)) {
+        for (const btn of item.buttons) {
+          card.addReply(btn.text || btn.displayText || 'Pilih', btn.id || `btn_${i}`);
+        }
+      }
+    }
+    return carousel.send(jid, options);
+  }
+
+  async sendStickerPack(jid, packData = {}, options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) throw new ConnectionError('Socket not available for sendStickerPack');
+    const pack = new StickerPackMessage(sock);
+    if (packData.name) pack.setName(packData.name);
+    if (packData.publisher) pack.setPublisher(packData.publisher);
+    if (packData.description) pack.setDescription(packData.description);
+    if (packData.cover) pack.setCover(packData.cover);
+    if (Array.isArray(packData.stickers)) pack.setStickers(packData.stickers);
+    return pack.send(jid, options);
+  }
+
+  messageBuilder(jid, options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) throw new ConnectionError('Socket not available for messageBuilder');
+    return createMessageBuilder(sock, jid, options);
+  }
+
+  async getPNFromLid(m, lidInput) {
+    const sock = this.getRawSocket();
+    return getPNFromLid(m, lidInput, sock);
+  }
+
+  async getLidFromPN(m, jidInput) {
+    const sock = this.getRawSocket();
+    return getLidFromPN(m, jidInput, sock);
   }
 
   async getMessage(key) {

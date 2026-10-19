@@ -34,7 +34,7 @@ export function resolveLidToPn(jid, sessionDir = './session') {
     'session',
     path.resolve(process.cwd(), 'session'),
     path.resolve(process.cwd(), './session'),
-    path.resolve('./session')
+    path.resolve('./session'),
   ];
 
   for (const dir of candidateDirs) {
@@ -53,6 +53,78 @@ export function resolveLidToPn(jid, sessionDir = './session') {
   }
 
   return cleanJid;
+}
+
+/**
+ * Mengambil Phone Number (@s.whatsapp.net) dari LID dengan memanfaatkan
+ * konteks pesan (group participant metadata atau private chat key pair).
+ *
+ * @param {Object} m Konteks pesan WhatsApp
+ * @param {string} lidInput JID LID yang ingin diterjemahkan
+ * @param {Object} [socket] Socket Baileys
+ * @returns {Promise<string>}
+ */
+export async function getPNFromLid(m, lidInput, socket) {
+  if (!lidInput) return lidInput;
+  try {
+    const chat = m?.chat || m?.key?.remoteJid || '';
+    if (chat.endsWith('@g.us') && socket && typeof socket.groupMetadata === 'function') {
+      const metadata = await socket.groupMetadata(chat);
+      if (metadata && Array.isArray(metadata.participants)) {
+        const found = metadata.participants.find((entry) => entry.id === lidInput || entry.lid === lidInput);
+        if (found) {
+          const pn = found.phoneNumber || found.id;
+          if (pn && !pn.endsWith('@lid')) {
+            const clean = pn.split('@')[0].split(':')[0];
+            return `${clean}@s.whatsapp.net`;
+          }
+        }
+      }
+    } else if (m && m.key) {
+      const { remoteJid, remoteJidAlt } = m.key;
+      if (remoteJid === lidInput && remoteJidAlt && remoteJidAlt.endsWith('@s.whatsapp.net')) {
+        const clean = remoteJidAlt.split('@')[0].split(':')[0];
+        return `${clean}@s.whatsapp.net`;
+      }
+    }
+  } catch (_) {}
+
+  return resolveLidToPn(lidInput);
+}
+
+/**
+ * Mengambil LID (@lid) dari Phone Number JID (@s.whatsapp.net).
+ *
+ * @param {Object} m Konteks pesan WhatsApp
+ * @param {string} jidInput JID nomor telepon
+ * @param {Object} [socket] Socket Baileys
+ * @returns {Promise<string>}
+ */
+export async function getLidFromPN(m, jidInput, socket) {
+  if (!jidInput) return jidInput;
+  try {
+    const chat = m?.chat || m?.key?.remoteJid || '';
+    if (chat.endsWith('@g.us') && socket && typeof socket.groupMetadata === 'function') {
+      const metadata = await socket.groupMetadata(chat);
+      if (metadata && Array.isArray(metadata.participants)) {
+        const found = metadata.participants.find((entry) => (
+          entry.phoneNumber === jidInput ||
+          entry.id === jidInput ||
+          entry.id?.split('@')[0] === jidInput.split('@')[0]
+        ));
+        if (found && (found.lid || found.id?.endsWith('@lid'))) {
+          return found.lid || found.id;
+        }
+      }
+    } else if (m && m.key) {
+      const { remoteJid, remoteJidAlt } = m.key;
+      if (remoteJidAlt === jidInput && remoteJid && remoteJid.endsWith('@lid')) {
+        return remoteJid;
+      }
+    }
+  } catch (_) {}
+
+  return jidInput;
 }
 
 export default resolveLidToPn;
