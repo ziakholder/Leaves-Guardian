@@ -18,7 +18,7 @@ import fs from 'node:fs';
  * @param {number} [options.quality=80] - JPEG compression quality (1-100)
  * @returns {Promise<Buffer|null>}
  */
-export async function processThumbnailBuffer(source, { width = 500, height = 500, quality = 88 } = {}) {
+export async function processThumbnailBuffer(source, { width, height, quality = 85, banner = true } = {}) {
   if (!source) return null;
 
   let buffer = null;
@@ -45,35 +45,56 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
   }
 
   const MAX_THUMB_BYTES = 30000;
-  let targetW = Number(width) > 0 ? Number(width) : 300;
-  let targetH = Number(height) > 0 ? Number(height) : 300;
+  const isBanner = banner !== false;
+  let targetW = Number(width) > 0 ? Number(width) : (isBanner ? 400 : 300);
+  let targetH = Number(height) > 0 ? Number(height) : (isBanner ? 225 : 300);
   let targetQuality = Math.min(Math.max(Number(quality) || 85, 1), 100);
 
-  // WhatsApp mobile client strictly discards inline thumbnails exceeding 300x300
-  if (targetW > 300 || targetH > 300) {
-    targetW = 300;
-    targetH = 300;
-  }
+  if (targetW > 400) targetW = 400;
+  if (targetH > 300) targetH = 300;
 
   // Engine 1: sharp (Lanczos3 kernel + smart sharpen + MozJPEG with adaptive byte-budget)
   try {
     const sharpModule = await import('sharp');
     const sharp = sharpModule.default || sharpModule;
+    const meta = await sharp(buffer).metadata();
+    const srcRatio = (meta.width && meta.height) ? (meta.width / meta.height) : 1;
+
     let curW = targetW;
     let curH = targetH;
     let curQ = targetQuality;
     let output = null;
 
     for (let attempt = 0; attempt < 8; attempt++) {
-      let pipeline = sharp(buffer).resize(curW, curH, {
-        fit: 'cover',
-        position: 'center',
-        kernel: 'lanczos3',
-      });
+      let basePipeline;
+      if (isBanner && srcRatio < 1.35) {
+        // Source is square or portrait: composite onto 16:9 banner with blurred ambient background
+        // so the subject NEVER appears squished/gepeng on WhatsApp mobile
+        const bg = await sharp(buffer)
+          .resize(curW, curH, { fit: 'cover', position: 'center' })
+          .blur(18)
+          .modulate({ brightness: 0.75 })
+          .toBuffer();
 
-      pipeline = pipeline.sharpen();
+        const fgH = Math.max(curH - 12, 10);
+        const fgW = Math.round(fgH * srcRatio);
+        const fg = await sharp(buffer)
+          .resize(fgW, fgH, { fit: 'contain' })
+          .toBuffer();
 
-      output = await pipeline
+        basePipeline = sharp(bg)
+          .composite([{ input: fg, gravity: 'center' }]);
+      } else {
+        basePipeline = sharp(buffer)
+          .resize(curW, curH, {
+            fit: 'cover',
+            position: 'center',
+            kernel: 'lanczos3',
+          });
+      }
+
+      output = await basePipeline
+        .sharpen()
         .jpeg({
           quality: curQ,
           mozjpeg: true,
@@ -87,9 +108,9 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
 
       if (curQ > 65) {
         curQ -= 5;
-      } else if (curW > 250) {
-        curW = 250;
-        curH = 250;
+      } else if (curW > 300) {
+        curW = 300;
+        curH = isBanner ? 169 : 300;
         curQ = 80;
       } else {
         break;
@@ -103,20 +124,34 @@ export async function processThumbnailBuffer(source, { width = 500, height = 500
   try {
     const { createCanvas, loadImage } = await import('@napi-rs/canvas');
     const img = await loadImage(buffer);
-    const canvasW = Math.min(targetW, 300);
+    const srcRatio = (img.width && img.height) ? (img.width / img.height) : 1;
+    const canvasW = Math.min(targetW, 400);
     const canvasH = Math.min(targetH, 300);
     const canvas = createCanvas(canvasW, canvasH);
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    const scale = Math.max(canvasW / img.width, canvasH / img.height);
-    const x = (canvasW - img.width * scale) / 2;
-    const y = (canvasH - img.height * scale) / 2;
-    ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+    if (isBanner && srcRatio < 1.35) {
+      const scaleBg = Math.max(canvasW / img.width, canvasH / img.height);
+      const bgW = img.width * scaleBg;
+      const bgH = img.height * scaleBg;
+      ctx.drawImage(img, (canvasW - bgW) / 2, (canvasH - bgH) / 2, bgW, bgH);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      ctx.fillRect(0, 0, canvasW, canvasH);
 
-    const output = canvas.toBuffer('image/jpeg', Math.min(targetQuality, 80));
-    if (output && output.length > 0) return output;
+      const fgH = canvasH - 12;
+      const fgW = Math.round(fgH * srcRatio);
+      ctx.drawImage(img, (canvasW - fgW) / 2, (canvasH - fgH) / 2, fgW, fgH);
+    } else {
+      const scale = Math.max(canvasW / img.width, canvasH / img.height);
+      const x = (canvasW - img.width * scale) / 2;
+      const y = (canvasH - img.height * scale) / 2;
+      ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+    }
+
+    const output = canvas.toBuffer('image/jpeg', Math.min(targetQuality, 82));
+    if (output && output.length > 0 && output.length <= MAX_THUMB_BYTES) return output;
   } catch (_) {}
 
   // Engine 3: jimp (pure JS fallback)
