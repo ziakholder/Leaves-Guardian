@@ -537,6 +537,7 @@ class AIRichMessage extends BaseBuilder {
             message: {
               richResponseMessage: {
                 messageType: 1,
+                submessages: this._submessages,
                 unifiedResponse: {
                   data: Buffer.from(JSON.stringify(htmlPayloadObj)).toString('base64'),
                 },
