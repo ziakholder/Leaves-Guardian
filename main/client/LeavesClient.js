@@ -33,6 +33,7 @@ import { OrderMessage } from '../models/order-message.js';
 import { StickerPackMessage } from '../models/sticker-pack-message.js';
 import ButtonMessage from '../models/button-message.js';
 import CarouselMessage from '../models/carousel-message.js';
+import CanvasMessage from '../models/canvas-message.js';
 import { createMessageBuilder } from '../socket/socket-decorator.js';
 
 
@@ -657,6 +658,35 @@ export class LeavesClient extends EventEmitter {
     if (packData.cover) pack.setCover(packData.cover);
     if (Array.isArray(packData.stickers)) pack.setStickers(packData.stickers);
     return pack.send(jid, options);
+  }
+
+  createCanvas(options = {}) {
+    const sock = this.getRawSocket();
+    return new CanvasMessage(sock || this);
+  }
+
+  async sendCanvas(jid, htmlOrOptions = '', options = {}) {
+    const sock = this.getRawSocket();
+    if (!sock) throw new ConnectionError('Socket not available for sendCanvas');
+    if (typeof sock.sendCanvas === 'function') {
+      return sock.sendCanvas(jid, htmlOrOptions, options);
+    }
+    const canvas = new CanvasMessage(sock);
+    if (typeof htmlOrOptions === 'string') {
+      canvas.setHtml(htmlOrOptions);
+    } else if (typeof htmlOrOptions === 'object') {
+      if (htmlOrOptions.title) canvas.setTitle(htmlOrOptions.title);
+      if (htmlOrOptions.html) canvas.setHtml(htmlOrOptions.html);
+      if (htmlOrOptions.body) canvas.setBody(htmlOrOptions.body);
+      if (htmlOrOptions.footer) canvas.setFooter(htmlOrOptions.footer);
+      if (htmlOrOptions.quoted) canvas.quote(htmlOrOptions.quoted);
+      if (Array.isArray(htmlOrOptions.tabs)) {
+        for (const t of htmlOrOptions.tabs) {
+          canvas.addTab(t.id || t.title, t.title || t.id, t.html || t.content || '');
+        }
+      }
+    }
+    return canvas.send(jid, options);
   }
 
   messageBuilder(jid, options = {}) {

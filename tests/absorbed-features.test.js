@@ -19,6 +19,7 @@ import {
   ButtonMessage,
   CarouselMessage,
   AIRichMessage,
+  CanvasMessage,
 } from '../main/index.js';
 import { FakeSocket } from '../main/test-utils/FakeSocket.js';
 
@@ -363,5 +364,39 @@ test('AIRichMessage addHtml should build unifiedResponse with FOAHtmlPrimitiveDe
   assert.equal(section.view_model?.primitive?.payload, '<html><body><h1>Halo dari AI</h1></body></html>');
   assert.deepEqual(section.view_model?.primitive?.trusted_sources, ['nixel.dev', 'ryuu.biz.id']);
 });
+
+test('CanvasMessage should build embedded_screens with GenAIaeacdsnwHtmlPrimitive and verificationMetadata', async () => {
+  const sock = new MockRelaySocket();
+  const canvasMsg = new CanvasMessage(sock)
+    .setTitle('Dino Runner Game')
+    .setBody('> Memuat Mini App Dino...')
+    .setHtml('<canvas id="game"></canvas><script>console.log("Dino")</script>', {
+      tabHeader: 'Dino Runner',
+      url: 'https://nixel.dev',
+      trustedSources: ['nixel.dev'],
+    });
+
+  const built = canvasMsg.build('628123456789@s.whatsapp.net');
+  assert.ok(built);
+  assert.ok(built.message);
+  assert.ok(built.message.messageContextInfo?.botMetadata?.verificationMetadata?.proofs);
+  assert.equal(built.message.messageContextInfo.botMetadata.verificationMetadata.proofs.length, 1);
+
+  const richMsg = built.message.botForwardedMessage?.message?.richResponseMessage;
+  assert.ok(richMsg);
+  assert.ok(richMsg.unifiedResponse?.data);
+
+  const decoded = JSON.parse(Buffer.from(richMsg.unifiedResponse.data, 'base64').toString('utf8'));
+  assert.ok(decoded.embedded_screens);
+  assert.equal(decoded.embedded_screens.length, 1);
+  assert.equal(decoded.embedded_screens[0].content[0].__typename, 'FOAIDNixelButtonSheets');
+  assert.equal(decoded.embedded_screens[0].content[0].tabs.length, 1);
+
+  const tab = decoded.embedded_screens[0].content[0].tabs[0];
+  assert.equal(tab.tab_header, 'Dino Runner');
+  assert.equal(tab.sections[0].view_model.primitive.__typename, 'GenAIaeacdsnwHtmlPrimitive');
+  assert.equal(tab.sections[0].view_model.primitive.payload, '<canvas id="game"></canvas><script>console.log("Dino")</script>');
+});
+
 
 

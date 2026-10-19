@@ -12,6 +12,7 @@ import ProductMessage from '../models/product-message.js';
 import PollMessage from '../models/poll-message.js';
 import StickerMessage from '../models/sticker-message.js';
 import A2UIMessage from '../models/a2ui-message.js';
+import CanvasMessage from '../models/canvas-message.js';
 import { getPNFromLid, getLidFromPN } from '../helpers/lid-resolver.js';
 
 /**
@@ -36,6 +37,7 @@ export function createMessageBuilder(socket, jid, options = {}) {
             if (t === 'button') return new ButtonMessage(socket);
             if (t === 'buttonv2' || t === 'legacybutton') return new ButtonMessageV2(socket);
             if (t === 'carousel') return new CarouselMessage(socket);
+            if (t === 'canvas') return new CanvasMessage(socket);
             if (t === 'airich' || t === 'ai' || t === 'html') return new AIRichMessage(socket);
             if (t === 'album') return new AlbumMessage(socket);
             if (t === 'order') return new OrderMessage(socket);
@@ -235,6 +237,25 @@ export function decorateSocket(socket) {
     if (options.categories || options.emojis) sticker.setCategories(options.categories || options.emojis);
     if (options.contextInfo) sticker.setContextInfo(options.contextInfo);
     return sticker.send(jid, other);
+  };
+
+  socket.sendCanvas = async function(jid, options = {}, other = {}) {
+    const canvas = new CanvasMessage(socket);
+    if (typeof options === 'string') {
+      canvas.setHtml(options);
+    } else if (typeof options === 'object') {
+      if (options.title) canvas.setTitle(options.title);
+      if (options.html) canvas.setHtml(options.html);
+      if (options.body) canvas.setBody(options.body);
+      if (options.footer) canvas.setFooter(options.footer);
+      if (options.quoted) canvas.quote(options.quoted);
+      if (Array.isArray(options.tabs)) {
+        for (const t of options.tabs) {
+          canvas.addTab(t.id || t.title, t.title || t.id, t.html || t.content || '');
+        }
+      }
+    }
+    return canvas.send(jid, other);
   };
 
   socket.getPNFromLid = async function(m, lidInput) {

@@ -227,6 +227,31 @@ class AIRichMessage extends BaseBuilder {
   }
 
   /**
+   * Menghasilkan metadata verifikasi pesan bot Meta AI (Proof Signature & Certificate Chain)
+   * Diperlukan oleh WhatsApp Android agar primitive HTML / Canvas dapat diproses tanpa silent-drop.
+   */
+  static generateVerificationMetadata() {
+    const signatureMaterial = Buffer.from('NIXEL.MessageBuilderV4.7-VerificationSignature.Metadata');
+    const certificateMaterial = Buffer.from('NIXEL.MessageBuilderV4.7-CertificateChain.Metadata');
+    const signature = Buffer.concat([signatureMaterial, crypto.randomBytes(Math.max(0, 64 - signatureMaterial.length))]).toString('base64');
+    const certificateChain = [
+      Buffer.concat([certificateMaterial, crypto.randomBytes(Math.max(0, 684 - certificateMaterial.length))]).toString('base64'),
+      Buffer.concat([certificateMaterial, crypto.randomBytes(Math.max(0, 892 - certificateMaterial.length))]).toString('base64'),
+    ];
+
+    return {
+      proofs: [
+        {
+          version: 1,
+          useCase: 1,
+          signature,
+          certificateChain,
+        },
+      ],
+    };
+  }
+
+  /**
    * Tambah teks dengan dukungan Inline Hyperlink [Nama Link](https://...) dan LaTeX
    */
   addText(text, { hyperlink = true, citation = true, latex = true } = {}) {
@@ -514,6 +539,8 @@ class AIRichMessage extends BaseBuilder {
 
     const isHtmlOnly = this._htmlPayloads.length > 0 && this._sections.length === this._htmlPayloads.length;
     if (isHtmlOnly) {
+      const htmlItem = this._htmlPayloads[0];
+      const primitiveTypename = htmlItem.typename || 'FOAHtmlPrimitiveDemoDONOTUSE';
       const htmlPayloadObj = {
         __typename: 'GenAIUnifiedResponse',
         response_id: crypto.randomUUID(),
@@ -522,17 +549,50 @@ class AIRichMessage extends BaseBuilder {
           view_model: {
             __typename: 'GenAISingleLayoutViewModel',
             primitive: {
-              __typename: 'FOAHtmlPrimitiveDemoDONOTUSE',
-              trusted_sources: this._htmlPayloads[0].trusted_sources,
-              payload: this._htmlPayloads[0].payload,
+              __typename: primitiveTypename,
+              trusted_sources: htmlItem.trusted_sources,
+              payload: htmlItem.payload,
+              url: htmlItem.url || 'https://nixel.dev',
             },
           },
+        }],
+        embedded_screens: [{
+          title: 'Preview',
+          content: [{
+            __typename: 'FOAIDNixelButtonSheets',
+            tabs: [{
+              id: 'tab_0',
+              tab_header: this._title || 'Canvas',
+              sections: [{
+                __typename: 'GenAIUnifiedResponseSection',
+                view_model: {
+                  __typename: 'GenAISingleLayoutViewModel',
+                  primitive: {
+                    __typename: primitiveTypename === 'FOAHtmlPrimitiveDemoDONOTUSE' ? 'GenAIaeacdsnwHtmlPrimitive' : primitiveTypename,
+                    trusted_sources: htmlItem.trusted_sources,
+                    payload: htmlItem.payload,
+                    url: htmlItem.url || 'https://nixel.dev',
+                  },
+                },
+              }],
+              step_entries: [],
+            }],
+          }],
         }],
       };
 
       return generateWAMessageFromContent(
         jid,
         {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+            botMetadata: {
+              messageDisclaimerText: this._title || '',
+              botResponseId: this._botResponseId,
+              verificationMetadata: AIRichMessage.generateVerificationMetadata(),
+            },
+          },
           botForwardedMessage: {
             message: {
               richResponseMessage: {
@@ -599,6 +659,8 @@ class AIRichMessage extends BaseBuilder {
           deviceListMetadataVersion: 2,
           botMetadata: {
             messageDisclaimerText: title || '',
+            botResponseId: this._botResponseId,
+            verificationMetadata: AIRichMessage.generateVerificationMetadata(),
             richResponseSourcesMetadata: {
               sources: this._richResponseSources,
             },
@@ -623,6 +685,45 @@ class AIRichMessage extends BaseBuilder {
       },
       { userJid: this.#client.user?.id, ...options }
     );
+  }
+
+  async buildEdit(targetJid, targetId, { msg, messageId, ...options } = {}) {
+    const editedMessage = msg || (await this.build(targetJid, options)).message;
+    if (!editedMessage) {
+      throw new Error('buildEdit: msg tidak berisi botForwardedMessage valid');
+    }
+
+    return generateWAMessageFromContent(
+      targetJid,
+      {
+        botForwardedMessage: {
+          message: {
+            protocolMessage: {
+              key: {
+                remoteJid: targetJid,
+                fromMe: true,
+                id: targetId,
+              },
+              type: 14,
+              editedMessage,
+            },
+          },
+        },
+      },
+      { userJid: this.#client.user?.id, ...options }
+    );
+  }
+
+  async sendEdit(jid, id, options = {}) {
+    const targetJid = (jid && typeof jid === 'string' && /:\d+@/gi.test(jid))
+      ? `${jid.split('@')[0].split(':')[0]}@${jid.split('@')[1]}`
+      : jid;
+    const msgEdit = await this.buildEdit(targetJid, id, options);
+    await this.#client.relayMessage(targetJid, msgEdit.message, {
+      messageId: msgEdit.key.id,
+      ...options,
+    });
+    return msgEdit;
   }
 
   async send(jid, options = {}) {
